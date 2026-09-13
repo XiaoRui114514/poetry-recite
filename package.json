@@ -1,0 +1,18 @@
+{
+  "name": "hison-poetry-recite",
+  "version": "1.1.6",
+  "private": true,
+  "description": "上海初高古诗文背诵 · 初高中古诗文背诵学习系统（纯前端静态页面，Hison 制作）",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "build": "node build.js && node tools/check-dist.cjs",
+    "test:unit": "node tests/unit.mjs",
+    "test:data": "node tools/qa-data.cjs",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "test": "npm run test:unit && npm run test:data && npm run build && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

@@ -1,0 +1,11 @@
+# 依赖与测试产物（不需要提交）
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini

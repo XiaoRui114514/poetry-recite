@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>上海初高古诗文背诵 · 初高中古诗文背诵学习系统</title>
+  <meta name="description" content="纯前端、可离线使用的初高中古诗文背诵辅助系统：课标篇目选择、全文学习、多种默写自测、本地学习进度与错题本，支持深色模式。">
+  <meta name="theme-color" content="#f4f7ff">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    /* 主题预置：避免刷新时闪白 / 闪黑（与 app.js 使用同一个 key） */
+    (function () {
+      var KEY = 'hison-poetry-theme';
+      var theme = null;
+      try { theme = localStorage.getItem(KEY); } catch (err) { theme = null; }
+      if (theme !== 'light' && theme !== 'dark') {
+        theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b1020' : '#f4f7ff');
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <div class="app">
+    <header class="app-header">
+      <div class="app-header-inner">
+        <button type="button" id="headerBack" class="header-back" hidden aria-label="返回">←</button>
+        <div class="brand-lockup">
+          <span class="brand-logo" aria-hidden="true">诗</span>
+          <div class="app-title-box">
+            <h1 class="app-title">上海初高古诗文背诵</h1>
+            <p class="app-subtitle" id="headerSubtitle">初高中古诗文背诵学习系统 · 纯本地运行</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="header-meta" id="headerMeta"></div>
+          <button type="button" id="themeToggle" class="icon-btn" aria-label="切换深色 / 浅色模式" title="切换深色 / 浅色模式">🌙</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="app-main" tabindex="-1">
+      <noscript>
+        <div class="card">
+          <p>本系统需要浏览器启用 JavaScript 才能运行。</p>
+        </div>
+      </noscript>
+      <div id="viewRoot" class="view-root" aria-live="polite"></div>
+    </main>
+
+    <!-- 页脚由 js/brand.js 注入（署名 / 授权 / 版本），被删除也会自动重建 -->
+    <footer id="appFooter" class="brand-foot app-footer"></footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="data/metadata.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/brand.js"></script>
+  <script src="data/junior.js"></script>
+  <script src="data/senior.js"></script>
+  <script src="data/database.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/study.js"></script>
+  <script src="js/quiz.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
