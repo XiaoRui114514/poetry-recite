@@ -107,6 +107,16 @@
   /* ================= 3) 文案 ================= */
   var SUB = '初高中古诗文背诵学习系统';
   var REGION = '适配上海教材 · 覆盖全国课标';
+  /* 开源仓库：优先读 data/metadata.js 的 brand.repo（单一来源），读不到时用内置副本 */
+  var REPO_FALLBACK = { url: 'https://github.com/XiaoRui114514/poetry-recite', label: 'XiaoRui114514/poetry-recite' };
+
+  function repoInfo() {
+    var meta = W.PoetryMeta && W.PoetryMeta.brand && W.PoetryMeta.brand.repo;
+    if (meta && typeof meta.url === 'string' && /^https:\/\//.test(meta.url)) {
+      return { url: meta.url, label: typeof meta.label === 'string' && meta.label ? meta.label : meta.url };
+    }
+    return REPO_FALLBACK;
+  }
   var CSS = '/*__BRAND_CSS__*/';
   var VER = '__RSYY_VER__';
   if (VER.indexOf('__') === 0) VER = '';
@@ -228,6 +238,7 @@
 
   function footHTML(id) {
     if (!id) return '';
+    var repo = repoInfo();
     return (
       '<div class="bf-main">' + esc(id.lab) + ' · ' + SUB + '（' + REGION + '）</div>' +
       '<div class="bf-brand">© 2026 <b>' + esc(id.tag) + '</b> · 抖音 ' + esc(id.dy) + ' · 小红书 ' + esc(id.xhs) + ' · 仅供个人免费学习' + sig() + '</div>' +
@@ -236,7 +247,11 @@
         '<button class="btn btn-sm" type="button" data-brand="lic">📜 版权与使用授权</button>' +
         '<span class="tip">禁止商用</span>' +
       '</div>' +
-      (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '')
+      (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '') +
+      (repo
+        ? '<div class="bf-repo">GitHub 开源仓库：' +
+          '<a href="' + esc(repo.url) + '" target="_blank" rel="noopener noreferrer">' + esc(repo.label) + '</a></div>'
+        : '')
     );
   }
 
@@ -264,10 +279,16 @@
       if (foot.className.indexOf('brand-foot') === -1) foot.className = 'brand-foot app-footer';
     }
     var html = footHTML(id);
-    if (foot.getAttribute('data-brand-ver') !== ver() || foot.getAttribute('data-brand-n') !== id.n) {
+    var repoUrl = repoInfo() ? repoInfo().url : '';
+    if (
+      foot.getAttribute('data-brand-ver') !== ver() ||
+      foot.getAttribute('data-brand-n') !== id.n ||
+      foot.getAttribute('data-brand-repo') !== repoUrl
+    ) {
       foot.innerHTML = html;
       foot.setAttribute('data-brand-n', id.n);
       foot.setAttribute('data-brand-ver', ver());
+      foot.setAttribute('data-brand-repo', repoUrl);
       if (foot.querySelector) {
         var lic = foot.querySelector('[data-brand="lic"]');
         if (lic && lic.addEventListener) {
@@ -482,6 +503,10 @@
     },
     sub: SUB,
     region: REGION,
+    repoUrl: function () {
+      var repo = repoInfo();
+      return repo ? repo.url : '';
+    },
     copy: copyText,
     showLicense: showLicense,
     licenseText: licenseText,

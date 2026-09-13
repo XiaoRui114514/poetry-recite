@@ -1035,6 +1035,16 @@ select {
   justify-content: center;
 }
 .brand-foot .bf-ver { margin-top: 0.45rem; color: var(--ink-faint); }
+/* 版本号下方的 GitHub 开源仓库链接 */
+.brand-foot .bf-repo { margin-top: 0.3rem; font-size: 0.6875rem; color: var(--ink-faint); }
+.brand-foot .bf-repo a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.18s var(--ease), color 0.18s var(--ease);
+}
+.brand-foot .bf-repo a:hover { border-bottom-color: currentColor; }
+.brand-foot .bf-repo a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .brand-foot .bf-links .tip {
   border: 1px dashed var(--stroke-strong);
   border-radius: 999px;
@@ -1203,7 +1213,7 @@ select {
   global.PoetryMeta = {
     appName: '上海初高古诗文背诵',
     slogan: '初高中古诗文背诵学习系统',
-    version: '1.1.6',
+    version: '1.1.7',
     updatedAt: '2026-09',
 
     // 作者品牌（页面署名、页脚、授权弹窗统一引用这里；js/brand.js 内部还带一份编码副本）
@@ -1214,6 +1224,11 @@ select {
       xhs: 'xiaoruiaaa520',
       lab: '上海初高古诗文背诵',
       intro: '把课标与统编教材里的古诗文整理成可以每天背的清单：选好篇目，逐句隐藏自测，默写看答案，错题自动攒起来，进度存在本机。',
+      // 开源仓库：页脚版本号下方展示（js/brand.js 渲染）
+      repo: {
+        url: 'https://github.com/XiaoRui114514/poetry-recite',
+        label: 'XiaoRui114514/poetry-recite',
+      },
     },
 
     // 学段（第一层选择）
@@ -1736,8 +1751,18 @@ select {
   /* ================= 3) 文案 ================= */
   var SUB = '初高中古诗文背诵学习系统';
   var REGION = '适配上海教材 · 覆盖全国课标';
-  var CSS = ".brand-foot {\n  margin-top: 2rem;\n  padding: 1.1rem 0.2rem 0.2rem;\n  border-top: 1px solid var(--stroke);\n  text-align: center;\n  font-size: 0.75rem;\n  color: var(--ink-faint);\n  line-height: 1.75;\n}\n.brand-foot .bf-main { font-weight: 700; color: var(--ink-dim); }\n.brand-foot .bf-brand { margin-top: 0.25rem; }\n.brand-foot .bf-brand b { color: var(--ink-dim); }\n.brand-foot .bf-links {\n  margin-top: 0.5rem;\n  display: flex;\n  flex-wrap: wrap;\n  gap: 0.5rem;\n  align-items: center;\n  justify-content: center;\n}\n.brand-foot .bf-ver { margin-top: 0.45rem; color: var(--ink-faint); }\n.brand-foot .bf-links .tip {\n  border: 1px dashed var(--stroke-strong);\n  border-radius: 999px;\n  padding: 0.1rem 0.5rem;\n  color: var(--ink-faint);\n}\n.bf-notes {\n  max-width: 36rem;\n  margin: 0.5rem auto 0;\n  font-size: 0.6875rem;\n  line-height: 1.7;\n}\n\n/* 右下角署名水印：平时是一枚小胶囊，鼠标悬停 / 点击后【原地】展开成署名卡片（无图标、无弹窗） */\n.brand-seal {\n  position: fixed;\n  right: max(0.75rem, env(safe-area-inset-right));\n  bottom: max(0.75rem, env(safe-area-inset-bottom));\n  z-index: 55;\n  display: block;\n  text-align: left;\n  overflow: hidden;\n  padding: 0.35rem 0.75rem;\n  border-radius: 13px;\n  border: 1px solid var(--stroke);\n  background: var(--glass-strong);\n  backdrop-filter: blur(12px);\n  -webkit-backdrop-filter: blur(12px);\n  box-shadow: var(--shadow-sm);\n  color: var(--ink-dim);\n  font-family: inherit;\n  cursor: pointer;\n  opacity: 0.9;\n  transform-origin: 100% 100%;\n  transition: padding 0.34s var(--ease), border-radius 0.34s var(--ease), background 0.3s,\n    box-shadow 0.34s var(--ease), opacity 0.24s var(--ease), transform 0.34s var(--ease);\n}\n.brand-seal .bs-face {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  white-space: nowrap;\n  font-size: 0.6875rem;\n  font-weight: 700;\n  letter-spacing: 0.03em;\n}\n.brand-seal .bs-panel {\n  display: block;\n  width: 0;\n  max-height: 0;\n  opacity: 0;\n  margin-top: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  transform: translateY(6px);\n  transition: width 0.34s var(--ease), max-height 0.34s var(--ease), opacity 0.26s ease,\n    transform 0.34s var(--ease), margin-top 0.34s var(--ease);\n}\n.brand-seal .bs-name { display: block; font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.02em; color: var(--ink); }\n.brand-seal .bs-row { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--ink-dim); }\n.brand-seal .bs-row i { font-style: normal; margin-right: 0.45rem; color: var(--ink-faint); }\n.brand-seal .bs-row b { color: var(--accent); font-weight: 800; letter-spacing: 0.02em; }\n.brand-seal .bs-row:hover b { text-decoration: underline; }\n.brand-seal .bs-tip { display: block; margin-top: 0.5rem; font-size: 0.625rem; color: var(--ink-faint); }\n\n/* 展开态：键盘聚焦 / 触摸点击 */\n.brand-seal:focus-visible,\n.brand-seal.on {\n  padding: 0.8rem 0.95rem 0.85rem;\n  border-radius: 18px;\n  box-shadow: var(--shadow);\n  opacity: 1;\n  transform: translateY(-2px);\n}\n.brand-seal:focus-visible .bs-panel,\n.brand-seal.on .bs-panel { width: 11rem; max-height: 9rem; opacity: 1; transform: none; margin-top: 0.5rem; }\n\n/* 有鼠标的设备：鼠标移上去即原展开（和点击展开同一套动画） */\n@media (hover: hover) {\n  .brand-seal:hover {\n    padding: 0.8rem 0.95rem 0.85rem;\n    border-radius: 18px;\n    box-shadow: var(--shadow);\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n  .brand-seal:hover .bs-panel { width: 11rem; max-height: 9rem; opacity: 1; transform: none; margin-top: 0.5rem; }\n}\n\n/* 授权说明弹窗 */\n.brand-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 80;\n  background: rgba(6, 10, 24, 0.55);\n  backdrop-filter: blur(6px);\n  -webkit-backdrop-filter: blur(6px);\n  display: grid;\n  place-items: center;\n  padding: 1rem;\n  animation: fadeUp 0.22s var(--ease);\n}\n.brand-sheet {\n  width: min(36rem, 100%);\n  max-height: 86vh;\n  overflow: auto;\n  background: var(--glass-strong);\n  border: 1px solid var(--stroke);\n  border-radius: var(--radius);\n  box-shadow: var(--shadow);\n  backdrop-filter: blur(20px) saturate(1.2);\n  -webkit-backdrop-filter: blur(20px) saturate(1.2);\n  padding: 1.15rem;\n}\n.brand-sheet h3 { margin: 0 0 0.2rem; font-size: 1.05rem; color: var(--ink); }\n.brand-sheet .bs-sub { margin: 0 0 0.7rem; font-size: 0.75rem; color: var(--ink-faint); }\n.brand-sheet .bs-lic { display: grid; gap: 0.45rem; font-size: 0.8125rem; color: var(--ink-dim); }\n.brand-sheet .bs-lic b { color: var(--ink); }\n.brand-sheet .bs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }";
-  var VER = "v1.1.6";
+  /* 开源仓库：优先读 data/metadata.js 的 brand.repo（单一来源），读不到时用内置副本 */
+  var REPO_FALLBACK = { url: 'https://github.com/XiaoRui114514/poetry-recite', label: 'XiaoRui114514/poetry-recite' };
+
+  function repoInfo() {
+    var meta = W.PoetryMeta && W.PoetryMeta.brand && W.PoetryMeta.brand.repo;
+    if (meta && typeof meta.url === 'string' && /^https:\/\//.test(meta.url)) {
+      return { url: meta.url, label: typeof meta.label === 'string' && meta.label ? meta.label : meta.url };
+    }
+    return REPO_FALLBACK;
+  }
+  var CSS = ".brand-foot {\n  margin-top: 2rem;\n  padding: 1.1rem 0.2rem 0.2rem;\n  border-top: 1px solid var(--stroke);\n  text-align: center;\n  font-size: 0.75rem;\n  color: var(--ink-faint);\n  line-height: 1.75;\n}\n.brand-foot .bf-main { font-weight: 700; color: var(--ink-dim); }\n.brand-foot .bf-brand { margin-top: 0.25rem; }\n.brand-foot .bf-brand b { color: var(--ink-dim); }\n.brand-foot .bf-links {\n  margin-top: 0.5rem;\n  display: flex;\n  flex-wrap: wrap;\n  gap: 0.5rem;\n  align-items: center;\n  justify-content: center;\n}\n.brand-foot .bf-ver { margin-top: 0.45rem; color: var(--ink-faint); }\n/* 版本号下方的 GitHub 开源仓库链接 */\n.brand-foot .bf-repo { margin-top: 0.3rem; font-size: 0.6875rem; color: var(--ink-faint); }\n.brand-foot .bf-repo a {\n  color: var(--accent);\n  text-decoration: none;\n  border-bottom: 1px solid transparent;\n  transition: border-color 0.18s var(--ease), color 0.18s var(--ease);\n}\n.brand-foot .bf-repo a:hover { border-bottom-color: currentColor; }\n.brand-foot .bf-repo a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }\n.brand-foot .bf-links .tip {\n  border: 1px dashed var(--stroke-strong);\n  border-radius: 999px;\n  padding: 0.1rem 0.5rem;\n  color: var(--ink-faint);\n}\n.bf-notes {\n  max-width: 36rem;\n  margin: 0.5rem auto 0;\n  font-size: 0.6875rem;\n  line-height: 1.7;\n}\n\n/* 右下角署名水印：平时是一枚小胶囊，鼠标悬停 / 点击后【原地】展开成署名卡片（无图标、无弹窗） */\n.brand-seal {\n  position: fixed;\n  right: max(0.75rem, env(safe-area-inset-right));\n  bottom: max(0.75rem, env(safe-area-inset-bottom));\n  z-index: 55;\n  display: block;\n  text-align: left;\n  overflow: hidden;\n  padding: 0.35rem 0.75rem;\n  border-radius: 13px;\n  border: 1px solid var(--stroke);\n  background: var(--glass-strong);\n  backdrop-filter: blur(12px);\n  -webkit-backdrop-filter: blur(12px);\n  box-shadow: var(--shadow-sm);\n  color: var(--ink-dim);\n  font-family: inherit;\n  cursor: pointer;\n  opacity: 0.9;\n  transform-origin: 100% 100%;\n  transition: padding 0.34s var(--ease), border-radius 0.34s var(--ease), background 0.3s,\n    box-shadow 0.34s var(--ease), opacity 0.24s var(--ease), transform 0.34s var(--ease);\n}\n.brand-seal .bs-face {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  white-space: nowrap;\n  font-size: 0.6875rem;\n  font-weight: 700;\n  letter-spacing: 0.03em;\n}\n.brand-seal .bs-panel {\n  display: block;\n  width: 0;\n  max-height: 0;\n  opacity: 0;\n  margin-top: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  transform: translateY(6px);\n  transition: width 0.34s var(--ease), max-height 0.34s var(--ease), opacity 0.26s ease,\n    transform 0.34s var(--ease), margin-top 0.34s var(--ease);\n}\n.brand-seal .bs-name { display: block; font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.02em; color: var(--ink); }\n.brand-seal .bs-row { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--ink-dim); }\n.brand-seal .bs-row i { font-style: normal; margin-right: 0.45rem; color: var(--ink-faint); }\n.brand-seal .bs-row b { color: var(--accent); font-weight: 800; letter-spacing: 0.02em; }\n.brand-seal .bs-row:hover b { text-decoration: underline; }\n.brand-seal .bs-tip { display: block; margin-top: 0.5rem; font-size: 0.625rem; color: var(--ink-faint); }\n\n/* 展开态：键盘聚焦 / 触摸点击 */\n.brand-seal:focus-visible,\n.brand-seal.on {\n  padding: 0.8rem 0.95rem 0.85rem;\n  border-radius: 18px;\n  box-shadow: var(--shadow);\n  opacity: 1;\n  transform: translateY(-2px);\n}\n.brand-seal:focus-visible .bs-panel,\n.brand-seal.on .bs-panel { width: 11rem; max-height: 9rem; opacity: 1; transform: none; margin-top: 0.5rem; }\n\n/* 有鼠标的设备：鼠标移上去即原展开（和点击展开同一套动画） */\n@media (hover: hover) {\n  .brand-seal:hover {\n    padding: 0.8rem 0.95rem 0.85rem;\n    border-radius: 18px;\n    box-shadow: var(--shadow);\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n  .brand-seal:hover .bs-panel { width: 11rem; max-height: 9rem; opacity: 1; transform: none; margin-top: 0.5rem; }\n}\n\n/* 授权说明弹窗 */\n.brand-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 80;\n  background: rgba(6, 10, 24, 0.55);\n  backdrop-filter: blur(6px);\n  -webkit-backdrop-filter: blur(6px);\n  display: grid;\n  place-items: center;\n  padding: 1rem;\n  animation: fadeUp 0.22s var(--ease);\n}\n.brand-sheet {\n  width: min(36rem, 100%);\n  max-height: 86vh;\n  overflow: auto;\n  background: var(--glass-strong);\n  border: 1px solid var(--stroke);\n  border-radius: var(--radius);\n  box-shadow: var(--shadow);\n  backdrop-filter: blur(20px) saturate(1.2);\n  -webkit-backdrop-filter: blur(20px) saturate(1.2);\n  padding: 1.15rem;\n}\n.brand-sheet h3 { margin: 0 0 0.2rem; font-size: 1.05rem; color: var(--ink); }\n.brand-sheet .bs-sub { margin: 0 0 0.7rem; font-size: 0.75rem; color: var(--ink-faint); }\n.brand-sheet .bs-lic { display: grid; gap: 0.45rem; font-size: 0.8125rem; color: var(--ink-dim); }\n.brand-sheet .bs-lic b { color: var(--ink); }\n.brand-sheet .bs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }";
+  var VER = "v1.1.7";
   if (VER.indexOf('__') === 0) VER = '';
 
   /** 版本号：构建时由 build.js 注入；未构建时回退到 data/metadata.js */
@@ -1857,6 +1882,7 @@ select {
 
   function footHTML(id) {
     if (!id) return '';
+    var repo = repoInfo();
     return (
       '<div class="bf-main">' + esc(id.lab) + ' · ' + SUB + '（' + REGION + '）</div>' +
       '<div class="bf-brand">© 2026 <b>' + esc(id.tag) + '</b> · 抖音 ' + esc(id.dy) + ' · 小红书 ' + esc(id.xhs) + ' · 仅供个人免费学习' + sig() + '</div>' +
@@ -1865,7 +1891,11 @@ select {
         '<button class="btn btn-sm" type="button" data-brand="lic">📜 版权与使用授权</button>' +
         '<span class="tip">禁止商用</span>' +
       '</div>' +
-      (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '')
+      (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '') +
+      (repo
+        ? '<div class="bf-repo">GitHub 开源仓库：' +
+          '<a href="' + esc(repo.url) + '" target="_blank" rel="noopener noreferrer">' + esc(repo.label) + '</a></div>'
+        : '')
     );
   }
 
@@ -1893,10 +1923,16 @@ select {
       if (foot.className.indexOf('brand-foot') === -1) foot.className = 'brand-foot app-footer';
     }
     var html = footHTML(id);
-    if (foot.getAttribute('data-brand-ver') !== ver() || foot.getAttribute('data-brand-n') !== id.n) {
+    var repoUrl = repoInfo() ? repoInfo().url : '';
+    if (
+      foot.getAttribute('data-brand-ver') !== ver() ||
+      foot.getAttribute('data-brand-n') !== id.n ||
+      foot.getAttribute('data-brand-repo') !== repoUrl
+    ) {
       foot.innerHTML = html;
       foot.setAttribute('data-brand-n', id.n);
       foot.setAttribute('data-brand-ver', ver());
+      foot.setAttribute('data-brand-repo', repoUrl);
       if (foot.querySelector) {
         var lic = foot.querySelector('[data-brand="lic"]');
         if (lic && lic.addEventListener) {
@@ -2111,6 +2147,10 @@ select {
     },
     sub: SUB,
     region: REGION,
+    repoUrl: function () {
+      var repo = repoInfo();
+      return repo ? repo.url : '';
+    },
     copy: copyText,
     showLicense: showLicense,
     licenseText: licenseText,

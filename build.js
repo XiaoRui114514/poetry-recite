@@ -55,7 +55,9 @@ html = html.replace(/[ \t]*<\/body>/, () => {
 });
 
 // 3) 检查是否还有外部引用
-const leftovers = [...html.matchAll(/(?:src|href)="((?!https?:|#|data:)[^"]+)"/g)].map((m) => m[1]);
+// 只检查真正的资源标签（script / link / img / iframe / source / video / audio），
+// 不能把内联脚本里的字符串（例如品牌层生成的 <a href="…"> 外链）也算进来。
+const leftovers = [...html.matchAll(/<(?:script|link|img|iframe|source|video|audio)[^>]+?(?:src|href)="((?!https?:|#|data:)[^"]+)"/g)].map((m) => m[1]);
 if (leftovers.length) {
   throw new Error('单文件版仍然引用了本地文件：' + leftovers.join(', '));
 }

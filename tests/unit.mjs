@@ -677,8 +677,21 @@ runtimeSources.forEach(([file, code]) => {
     check(`${file} 不含运行时联网调用 (${pattern})`, !pattern.test(code));
   });
 });
-check('index.html 没有远程资源引用', !/(?:src|href)="(?:https?:)?\/\//.test(indexHtml));
+check('index.html 没有远程资源引用（页脚里的 GitHub 链接不算资源）',
+  !/<(?:script|link|img|iframe|source)[^>]+(?:src|href)="(?:https?:)?\/\//.test(indexHtml));
 check('运行时不依赖远程字体 / 图片', !/url\(\s*['"]?(?:https?:)?\/\//.test(readFileSync(join(root, 'assets', 'styles.css'), 'utf8')));
+
+/* 页脚版本号下方的 GitHub 仓库链接（单一来源：metadata.brand.repo） */
+const repo = Meta.brand && Meta.brand.repo;
+check('metadata 里配置了 GitHub 仓库', !!repo && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(repo.url), repo ? repo.url : '(缺失)');
+const brandCode = readFileSync(join(root, 'js', 'brand.js'), 'utf8');
+check('brand.js 会把仓库链接渲染到页脚', brandCode.indexOf('bf-repo') !== -1 && brandCode.indexOf('repoInfo') !== -1);
+const brandSandbox = makeSandbox();
+['data/metadata.js', 'js/utils.js', 'js/brand.js'].forEach((file) => {
+  vm.runInContext(readFileSync(join(root, file), 'utf8'), brandSandbox, { filename: file });
+});
+eq('brand.js 能从 metadata 读到仓库地址',
+  brandSandbox.PoetryBrand.repoUrl ? brandSandbox.PoetryBrand.repoUrl() : '', repo.url);
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 eq('package.json 与 metadata.js 版本一致', pkg.version, Meta.version);

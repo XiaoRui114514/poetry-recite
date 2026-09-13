@@ -20,6 +20,7 @@ function sourceCounts() {
   for (const file of ['data/metadata.js', 'data/junior.js', 'data/senior.js']) {
     vm.runInContext(readFileSync(join(root, file), 'utf8'), sandbox, { filename: file });
   }
+  const repo = (sandbox.PoetryMeta.brand && sandbox.PoetryMeta.brand.repo) || { url: '', label: '' };
   const junior = sandbox.POETRY_JUNIOR;
   const senior = sandbox.POETRY_SENIOR;
   const gradesOf = (poem) => (Array.isArray(poem.grades) && poem.grades.length ? poem.grades : [poem.grade]);
@@ -46,6 +47,8 @@ function sourceCounts() {
     juniorSixShanghai: junior.filter((poem) => poem.grade === '六年级' && poem.sourceType === '上海地区').length,
     firstJuniorId: junior[0].id,
     unselectedJuniorId: junior.find((poem) => poem.id !== 'guan-ju' && poem.id !== 'jian-jia').id,
+    repoUrl: repo.url,
+    repoLabel: repo.label,
   };
 }
 const COUNTS = sourceCounts();
@@ -602,6 +605,16 @@ test('作者品牌层：页脚署名、印章账号与首次授权弹窗', async
   await expect(page.locator('.bf-brand')).toContainText('Hison');
   await expect(page.locator('.bf-brand')).toContainText('XRuiiiiii');
   await expect(page.locator('.bf-ver')).toContainText('v' + pkg.version);
+
+  // 版本号下方有 GitHub 开源仓库链接（新窗口打开、带 rel 保护）
+  const repoLink = page.locator('.bf-repo a');
+  await expect(repoLink).toHaveText(COUNTS.repoLabel);
+  await expect(repoLink).toHaveAttribute('href', COUNTS.repoUrl);
+  await expect(repoLink).toHaveAttribute('target', '_blank');
+  await expect(repoLink).toHaveAttribute('rel', /noopener/);
+  const verBox = await page.locator('.bf-ver').boundingBox();
+  const repoBox = await page.locator('.bf-repo').boundingBox();
+  expect(repoBox.y, 'GitHub 链接应在版本号下面').toBeGreaterThan(verBox.y);
 
   // 首页品牌标签（点击可打开授权说明）
   await expect(page.locator('.brand-chip')).toContainText('Hison');

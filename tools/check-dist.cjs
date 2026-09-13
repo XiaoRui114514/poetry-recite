@@ -75,6 +75,7 @@ function readBundleCounts(file) {
   });
   return {
     html,
+    sandbox: sb,
     junior: (sb.POETRY_JUNIOR || []).length,
     senior: (sb.POETRY_SENIOR || []).length,
     db: sb.PoetryDatabase.all().length,
@@ -115,11 +116,26 @@ for (const target of targets) {
   if (!/Hison/.test(bundle.html) || !/XRuiiiiii/.test(bundle.html)) fail(`${target} 作者署名不完整`);
 
   /* --- 4) 运行时完全离线 --- */
-  const remoteTag = bundle.html.match(/(?:src|href)="(https?:)?\/\//);
-  if (remoteTag) fail(`${target} 引用了远程资源：` + remoteTag[0]);
+  /* 注意：<a href="https://…"> 只是页脚里的 GitHub 链接，不加载任何资源，
+     真正要拦的是远程脚本 / 样式 / 图片 / 字体等资源引用。 */
+  const remoteResource = bundle.html.match(/<(?:script|link|img|iframe|source)[^>]+(?:src|href)="(https?:)?\/\//);
+  if (remoteResource) fail(`${target} 引用了远程资源：` + remoteResource[0]);
+  if (/@import\s+url\(\s*['"]?(https?:)?\/\//.test(bundle.html) || /url\(\s*['"]?(https?:)?\/\//.test(bundle.html)) {
+    fail(`${target} 的 CSS 里引用了远程资源`);
+  }
   ['fetch(', 'XMLHttpRequest', 'WebSocket', 'navigator.sendBeacon'].forEach((api) => {
     if (bundle.html.includes(api)) fail(`${target} 含运行时联网 API：${api}`);
   });
+
+  /* --- 4b) 页脚必须有 GitHub 开源仓库链接 ---
+     链接由 brand.js 运行时渲染（页脚是动态生成的），所以这里检查：
+     ① 产物里带着仓库地址；② 带 bf-repo 渲染逻辑。真实渲染结果由 e2e 用例断言。 */
+  const repoUrl = (bundle.sandbox && bundle.sandbox.PoetryMeta && bundle.sandbox.PoetryMeta.brand && bundle.sandbox.PoetryMeta.brand.repo)
+    ? bundle.sandbox.PoetryMeta.brand.repo.url
+    : '';
+  if (!repoUrl || !/^https:\/\/github\.com\//.test(repoUrl)) fail(`${target} 没有配置 GitHub 仓库地址（metadata.brand.repo）`);
+  else if (!bundle.html.includes(repoUrl)) fail(`${target} 产物里没有包含仓库地址 ${repoUrl}`);
+  if (!bundle.html.includes('bf-repo')) fail(`${target} 缺少页脚 GitHub 链接的渲染逻辑（bf-repo）`);
 
   /* --- 5) 两份产物必须完全一致 --- */
   if (previousHtml !== null && previousHtml !== bundle.html) fail('dist 下两份产物内容不一致（index.html 与单文件分享版应当是同一份）');

@@ -7,7 +7,7 @@
   global.PoetryMeta = {
     appName: '上海初高古诗文背诵',
     slogan: '初高中古诗文背诵学习系统',
-    version: '1.1.6',
+    version: '1.1.7',
     updatedAt: '2026-09',
 
     // 作者品牌（页面署名、页脚、授权弹窗统一引用这里；js/brand.js 内部还带一份编码副本）
@@ -18,6 +18,11 @@
       xhs: 'xiaoruiaaa520',
       lab: '上海初高古诗文背诵',
       intro: '把课标与统编教材里的古诗文整理成可以每天背的清单：选好篇目，逐句隐藏自测，默写看答案，错题自动攒起来，进度存在本机。',
+      // 开源仓库：页脚版本号下方展示（js/brand.js 渲染）
+      repo: {
+        url: 'https://github.com/XiaoRui114514/poetry-recite',
+        label: 'XiaoRui114514/poetry-recite',
+      },
     },
 
     // 学段（第一层选择）
