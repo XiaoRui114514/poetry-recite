@@ -244,7 +244,7 @@
       '<div class="bf-brand">© 2026 <b>' + esc(id.tag) + '</b> · 抖音 ' + esc(id.dy) + ' · 小红书 ' + esc(id.xhs) + ' · 仅供个人免费学习' + sig() + '</div>' +
       '<p class="bf-notes">本项目为开源学习工具，禁止未经许可的商业售卖；古诗文正文属公有领域经典作品，相关权利归原权利人所有，本项目仅提供学习工具与数据整理。</p>' +
       '<div class="bf-links">' +
-        '<button class="btn btn-sm" type="button" data-brand="lic">📜 版权与使用授权</button>' +
+        '<button class="btn btn-sm" type="button" data-brand="lic">版权与使用授权</button>' +
         '<span class="tip">禁止商用</span>' +
       '</div>' +
       (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '') +
@@ -354,14 +354,14 @@
   function licenseHTML() {
     var id = ident() || { n: 'Hison', tag: 'Hison 制作', dy: '', xhs: '', lab: '' };
     return (
-      '<h3>📜 版权与使用授权</h3>' +
+      '<h3>版权与使用授权</h3>' +
       '<p class="bs-sub">' + esc(id.lab) + ' · ' + SUB + '（' + REGION + '）</p>' +
       '<div class="bs-lic">' +
         '<p><b>作者：</b>' + esc(id.tag) + '　·　抖音 ' + esc(id.dy) + '　·　小红书 ' + esc(id.xhs) + '</p>' +
-        '<p><b>✅ 允许：</b>个人免费自学使用；原样完整分享本文件（必须保留署名、水印与本授权说明）。</p>' +
-        '<p><b>⛔ 禁止：</b>任何商业用途——培训机构 / 补课班授课、付费课程与讲义、付费社群引流、二次售卖；也禁止删除或篡改署名、水印后再分发。</p>' +
-        '<p><b>✍️ 转载：</b>请保留本页署名与水印；讲义、笔记、课件中引用题库或背诵方法时，请注明出处为作者账号。</p>' +
-        '<p><b>⚠️ 免责：</b>本工具仅作学习辅助，题库文本、作者、朝代、篇目归属与答案仅供参考，不构成提分或考试承诺；古诗文正文属公有领域经典作品，如发现错漏欢迎通过上述账号联系作者指正。</p>' +
+        '<p><b>允许：</b>个人免费自学使用；原样完整分享本文件（必须保留署名、水印与本授权说明）。</p>' +
+        '<p><b>禁止：</b>任何商业用途——培训机构 / 补课班授课、付费课程与讲义、付费社群引流、二次售卖；也禁止删除或篡改署名、水印后再分发。</p>' +
+        '<p><b>转载：</b>请保留本页署名与水印；讲义、笔记、课件中引用题库或背诵方法时，请注明出处为作者账号。</p>' +
+        '<p><b>免责：</b>本工具仅作学习辅助，题库文本、作者、朝代、篇目归属与答案仅供参考，不构成提分或考试承诺；古诗文正文属公有领域经典作品，如发现错漏欢迎通过上述账号联系作者指正。</p>' +
       '</div>' +
       '<div class="bs-actions">' +
         '<button class="btn btn-primary btn-sm" type="button" data-brand="ok">我已知晓</button>' +
@@ -410,7 +410,7 @@
       if (a === 'ok') {
         close();
       } else if (a === 'copy') {
-        if (copyText(licenseText())) t.textContent = '✅ 已复制';
+        if (copyText(licenseText())) t.textContent = '已复制';
       }
     });
     if (d.addEventListener) d.addEventListener('keydown', onKey);

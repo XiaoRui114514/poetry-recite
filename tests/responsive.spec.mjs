@@ -73,3 +73,47 @@ test('@responsive 长文言文与进度页在窄屏不错位', async ({ page }) 
   await expectNoHorizontalOverflow(page, '长文学习页');
   await expect(page.locator('.poem-body')).toContainText('落霞与孤鹜齐飞');
 });
+
+test('@responsive 逐句翻译在窄屏不溢出、隐藏时不改变布局', async ({ page }) => {
+  await fresh(page);
+  await page.locator('[data-stage="初中"]').click();
+  await page.click('[data-action="select-none"]');
+  await page.locator('.poem-card', { hasText: '观沧海' }).first().click();
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+
+  const lines = page.locator('.line-item');
+  await expect(lines).toHaveCount(6);
+  await expect(page.locator('.line-zh')).toHaveCount(6);
+  await expectNoHorizontalOverflow(page, '带翻译的全文学习页');
+
+  // 翻译字号必须小于原文，且未加粗、层级更低
+  const sizes = await page.evaluate(() => {
+    const text = document.querySelector('.line-text');
+    const zh = document.querySelector('.line-zh');
+    return {
+      text: parseFloat(getComputedStyle(text).fontSize),
+      zh: parseFloat(getComputedStyle(zh).fontSize),
+      weight: getComputedStyle(zh).fontWeight,
+      visibility: getComputedStyle(zh).visibility,
+    };
+  });
+  expect(sizes.zh).toBeLessThan(sizes.text);
+  expect(sizes.zh / sizes.text).toBeGreaterThanOrEqual(0.6);
+  expect(sizes.zh / sizes.text).toBeLessThanOrEqual(0.85);
+  expect(Number(sizes.weight)).toBeLessThanOrEqual(400);
+
+  const height = async () => page.evaluate(() => document.getElementById('poemBody').getBoundingClientRect().height);
+  const before = await height();
+
+  await page.click('[data-action="hide-all"]');
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+  const afterHide = await height();
+  expect(afterHide, '隐藏全部翻译后 poemBody 高度必须不变').toBeCloseTo(before, 0);
+  await expectNoHorizontalOverflow(page, '隐藏翻译后的全文学习页');
+
+  await page.click('[data-action="reveal-all"]');
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(6);
+  expect(await height(), '恢复显示后 poemBody 高度必须回到原值').toBeCloseTo(before, 0);
+  await expectNoHorizontalOverflow(page, '恢复翻译后的全文学习页');
+});

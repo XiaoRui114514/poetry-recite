@@ -4,6 +4,7 @@ test-results/
 playwright-report/
 playwright/.cache/
 *.log
+.hallmark/
 
 # 系统文件
 .DS_Store

@@ -23,6 +23,9 @@ function sourceCounts() {
   const repo = (sandbox.PoetryMeta.brand && sandbox.PoetryMeta.brand.repo) || { url: '', label: '' };
   const junior = sandbox.POETRY_JUNIOR;
   const senior = sandbox.POETRY_SENIOR;
+  /* 逐句翻译期望值直接从题库里取，避免测试写死译文后与数据脱节 */
+  const guanCangHai = junior.find((poem) => poem.id === 'guan-cang-hai');
+  const guanCangHaiTranslation = guanCangHai.translation;
   const gradesOf = (poem) => (Array.isArray(poem.grades) && poem.grades.length ? poem.grades : [poem.grade]);
   const countGrades = (list, grades) => list.filter((poem) => grades.some((grade) => gradesOf(poem).includes(grade))).length;
   const countQuery = (list, query) => list.filter((poem) => {
@@ -47,6 +50,7 @@ function sourceCounts() {
     juniorSixShanghai: junior.filter((poem) => poem.grade === '六年级' && poem.sourceType === '上海地区').length,
     firstJuniorId: junior[0].id,
     unselectedJuniorId: junior.find((poem) => poem.id !== 'guan-ju' && poem.id !== 'jian-jia').id,
+    guanCangHaiTranslation: guanCangHaiTranslation,
     repoUrl: repo.url,
     repoLabel: repo.label,
   };
@@ -145,13 +149,8 @@ test('初中：搜索、筛选、多选、全选与取消全选', async ({ page 
   await page.click('[data-filter="grade"][data-value="六年级"]');
   await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorSixGrade);
 
-  // 来源筛选
-  await page.click('[data-filter="sourceType"][data-value="上海地区"]');
-  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorSixShanghai);
-
   // 回到全部并多选
   await page.click('[data-filter="grade"][data-value=""]');
-  await page.click('[data-filter="sourceType"][data-value=""]');
   await selectPoems(page, ['关雎', '蒹葭', '观沧海']);
   await expect(page.locator('.select-summary')).toHaveText('已选择 3 篇');
   await expect(page.locator('.selected-chip')).toHaveCount(3);
@@ -237,6 +236,129 @@ test('全文学习：逐句隐藏/显示、关键词隐藏、上一句下一句'
 
   // 已学习标记
   await expect(page.locator('.badge', { hasText: '已学习' })).toHaveCount(1);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('全文学习：逐句翻译与原文显隐严格同步，且隐藏时不改变布局高度', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+
+  const lines = page.locator('.line-item');
+  const zh = page.locator('.line-item .line-zh');
+  await expect(lines).toHaveCount(6);
+  await expect(zh).toHaveCount(6);
+
+  // 1. 默认（显示全部）：每句下面都有对应翻译
+  const firstLine = lines.first();
+  await expect(firstLine).toContainText('东临碣石，以观沧海。');
+  await expect(firstLine.locator('.line-zh')).toHaveText(COUNTS.guanCangHaiTranslation[0]);
+  await expect(lines.nth(1).locator('.line-zh')).toHaveText(COUNTS.guanCangHaiTranslation[1]);
+  const texts = await zh.allTextContents();
+  expect(texts.every((text) => text.trim().length > 0), JSON.stringify(texts)).toBe(true);
+  const visibleCount = await page.locator('.line-zh:not(.is-off)').count();
+  expect(visibleCount).toBe(6);
+
+  // 记录原始高度与滚动位置：之后每次操作都必须保持一致
+  const heights = async () => page.evaluate(() => ({
+    body: document.getElementById('poemBody').getBoundingClientRect().height,
+    scroll: window.scrollY,
+    doc: document.documentElement.scrollHeight,
+  }));
+  const before = await heights();
+
+  // 2. 点击某一句 → 原文与翻译一起隐藏（翻译仍在 DOM 里，只是 visibility 收起）
+  await firstLine.click();
+  await expect(firstLine).toContainText('□□□□，□□□□。');
+  await expect(firstLine.locator('.line-zh')).toHaveClass(/is-off/);
+  await expect(firstLine.locator('.line-zh')).toBeHidden();
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(5);
+  let now = await heights();
+  expect(now.body, '逐句隐藏后 poemBody 高度不应变化').toBeCloseTo(before.body, 0);
+  expect(now.doc, '逐句隐藏后文档总高度不应变化').toBe(before.doc);
+
+  // 3. 再点一次 → 原文与翻译一起恢复
+  await firstLine.click();
+  await expect(firstLine).toContainText('东临碣石，以观沧海。');
+  await expect(firstLine.locator('.line-zh')).not.toHaveClass(/is-off/);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(6);
+  now = await heights();
+  expect(now.body).toBeCloseTo(before.body, 0);
+
+  // 4. 逐句隐藏 → 全部翻译隐藏，但高度不变
+  await page.click('[data-action="hide-all"]');
+  await expect(page.locator('.line-item.is-hidden')).toHaveCount(6);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+  now = await heights();
+  expect(now.body, '逐句隐藏后 poemBody 高度不应变化').toBeCloseTo(before.body, 0);
+  expect(now.doc, '逐句隐藏后文档总高度不应变化').toBe(before.doc);
+
+  // 5. 显示全部 → 原文与翻译一起恢复
+  await page.click('[data-action="reveal-all"]');
+  await expect(page.locator('.line-item.is-hidden')).toHaveCount(0);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(6);
+  now = await heights();
+  expect(now.body).toBeCloseTo(before.body, 0);
+  expect(now.doc).toBe(before.doc);
+
+  // 6. 关键词隐藏 → 全部翻译隐藏；再点一次恢复（关键词隐藏是开关）
+  await page.click('[data-action="toggle-keyword"]');
+  await expect(lines.first()).toContainText('东□□□，以□□□。');
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+  now = await heights();
+  expect(now.body, '关键词隐藏后 poemBody 高度不应变化').toBeCloseTo(before.body, 0);
+  expect(now.doc, '关键词隐藏后文档总高度不应变化').toBe(before.doc);
+
+  await page.click('[data-action="toggle-keyword"]');
+  // 再点一次只是退出“关键词隐藏”，句子仍是隐藏状态（整句挖空），翻译继续隐藏
+  await expect(lines.first()).toContainText('□□□□，□□□□。');
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+  await page.click('[data-action="reveal-all"]');
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(6);
+
+  // 7. 上一句 / 下一句：原文与翻译的状态保持一致
+  await page.click('[data-action="next-line"]');
+  await expect(page.locator('.line-item.is-active').locator('.line-zh')).not.toHaveClass(/is-off/);
+  await page.click('[data-action="next-line"]');
+  await expect(page.locator('.line-item.is-active')).toContainText('水何澹澹，山岛竦峙。');
+  await expect(page.locator('.line-item.is-active .line-zh')).toHaveText(COUNTS.guanCangHaiTranslation[1]);
+
+  // 8. 反复切换不应改变文档高度（布局稳定）
+  for (let i = 0; i < 4; i += 1) {
+    await page.click('[data-action="hide-all"]');
+    await page.click('[data-action="reveal-all"]');
+  }
+  now = await heights();
+  expect(now.doc, '反复隐藏 / 显示后文档总高度不应漂移').toBe(before.doc);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('全文学习：长文言文每句都有翻译且不出现横向溢出', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '高中');
+  await page.click('[data-action="select-none"]');
+  await page.fill('#poemSearch', '滕王阁序');
+  await page.locator('.poem-card', { hasText: '滕王阁序' }).first().click();
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+
+  const lines = page.locator('.line-item');
+  const total = await lines.count();
+  expect(total).toBeGreaterThan(40);
+  await expect(page.locator('.line-zh')).toHaveCount(total);
+  const texts = await page.locator('.line-zh').allTextContents();
+  expect(texts.filter((text) => !text.trim()).length, '不应有空白翻译').toBe(0);
+
+  const overflow = await page.evaluate(() => {
+    const doc = document.documentElement;
+    return Math.max(doc.scrollWidth - doc.clientWidth, document.body.scrollWidth - doc.clientWidth);
+  });
+  expect(overflow).toBeLessThanOrEqual(1);
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -1155,15 +1277,14 @@ test('高中课程模块筛选：只有必修 / 选择性必修 / 选修，不�
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('体裁与来源筛选同样支持多选', async ({ page }) => {
+test('来源筛选分区已移除，体裁筛选仍支持多选', async ({ page }) => {
   const errors = watchErrors(page);
   await gotoFresh(page);
   await chooseStage(page, '初中');
 
   const genreChips = await page.locator('[data-filter="genre"]').allInnerTexts();
   expect(genreChips).toEqual(['全部体裁', '诗', '词', '曲', '文言文']);
-  const sourceChips = await page.locator('[data-filter="sourceType"]').allInnerTexts();
-  expect(sourceChips).toEqual(['全部来源', '课标推荐', '统编教材', '上海地区', '拓展']);
+  await expect(page.locator('[data-filter="sourceType"]')).toHaveCount(0);
 
   // 体裁：诗 + 词（两者不重叠）
   await page.click('[data-filter="genre"][data-value="诗"]');
@@ -1174,17 +1295,13 @@ test('体裁与来源筛选同样支持多选', async ({ page }) => {
   await page.click('[data-filter="genre"][data-value="诗"]');
   await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorGenre(['词']));
 
-  // 来源：课标推荐 + 上海地区，并能与体裁叠加
+  // 体裁筛选与年级筛选可以叠加
   await page.click('[data-filter="genre"][data-value=""]');
-  await page.click('[data-filter="sourceType"][data-value="课标推荐"]');
-  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorSource(['课标推荐']));
-  await page.click('[data-filter="sourceType"][data-value="上海地区"]');
-  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorSource(['课标推荐', '上海地区']));
   await page.click('[data-filter="genre"][data-value="文言文"]');
-  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorQuery({ sourceType: ['课标推荐', '上海地区'], genre: ['文言文'] }));
+  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.juniorQuery({ genre: ['文言文'] }));
   await page.click('[data-filter="grade"][data-value="七年级"]');
   await expect(page.locator('.poem-card')).toHaveCount(
-    COUNTS.juniorQuery({ sourceType: ['课标推荐', '上海地区'], genre: ['文言文'], grade: ['七年级'] }),
+    COUNTS.juniorQuery({ genre: ['文言文'], grade: ['七年级'] }),
   );
   expect(errors, errors.join('\n')).toEqual([]);
 });

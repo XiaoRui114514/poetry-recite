@@ -171,7 +171,7 @@ eq('HTML 转义不遗漏引号', U.escapeHtml(`<a href="x">'&`), '&lt;a href=&qu
 
 /* ========== 3. 原始数据层（未经 normalize 的真实数组） ========== */
 
-const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'source', 'highlights', 'tags', 'notes', 'variants'];
+const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'source', 'highlights', 'tags', 'notes', 'variants'];
 const rawEntries = [
   ...Junior.map((poem) => ({ file: 'data/junior.js', stage: '初中', poem })),
   ...Senior.map((poem) => ({ file: 'data/senior.js', stage: '高中', poem })),
@@ -224,6 +224,45 @@ rawEntries.forEach(({ file, poem }) => {
   });
 });
 check('原始数据没有多余字段', extraIssues.length === 0, extraIssues.slice(0, 5).join('; '));
+
+/* 逐句翻译：与 Utils.splitSentences(poem.text) 的下标严格一一对应，这是全文学习页
+   “原文隐藏时翻译同步隐藏”的前提；任何长度不一致都会导致翻译错位。 */
+const translationIssues = [];
+let translationSentences = 0;
+rawEntries.forEach(({ file, poem }) => {
+  const sentences = U.splitSentences(poem.text);
+  translationSentences += sentences.length;
+  if (!Array.isArray(poem.translation)) {
+    translationIssues.push(`${file}/${poem.id} 缺少 translation 数组`);
+    return;
+  }
+  if (poem.translation.length !== sentences.length) {
+    translationIssues.push(`${file}/${poem.id} 译文 ${poem.translation.length} 条 ≠ 原文 ${sentences.length} 句`);
+  }
+  poem.translation.forEach((line, i) => {
+    if (typeof line !== 'string' || !line.trim()) translationIssues.push(`${file}/${poem.id}[${i}] 译文为空`);
+    else if (/[\r\n\t□]/.test(line)) translationIssues.push(`${file}/${poem.id}[${i}] 译文含换行 / 占位符`);
+    else if (line === sentences[i]) translationIssues.push(`${file}/${poem.id}[${i}] 译文与原文完全相同`);
+  });
+});
+check('每篇都有逐句翻译且句数与正文完全一致', translationIssues.length === 0, translationIssues.slice(0, 5).join('; '));
+check('逐句翻译总量 = 全部篇目的正文句数', translationSentences === rawEntries.reduce((sum, { poem }) => sum + U.splitSentences(poem.text).length, 0));
+
+const translationCount = DB.all().filter((poem) => poem.translations.length === U.splitSentences(poem.text).length).length;
+eq('数据库层每篇都能给出对齐的 translations', translationCount, rawEntries.length);
+check('数据库层 translationLines 与 splitSentences 一一对应', (() => {
+  const poem = DB.byId('guan-cang-hai');
+  const lines = DB.translationLines(poem);
+  const sentences = U.splitSentences(poem.text);
+  return lines.length === sentences.length && lines.every((line) => typeof line === 'string' && line.length > 0);
+})(), JSON.stringify(DB.translationLines(DB.byId('guan-cang-hai'))));
+eq('数据库层 translationLines 对缺翻译的位置补齐为空串', (() => {
+  const fake = { text: '甲乙。丙丁。', translations: ['第一句'] };
+  return DB.translationLines(fake).join('|');
+})(), '第一句|');
+check('数据库层 translationLines 容忍非数组 / 空篇目',
+  DB.translationLines({ text: '甲乙。', translations: null }).join('|') === '' &&
+  DB.translationLines(null).length === 0);
 
 const fieldValueIssues = [];
 rawEntries.forEach(({ file, stage, poem }) => {

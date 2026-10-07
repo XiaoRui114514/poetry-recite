@@ -1,5 +1,8 @@
 /* 古诗文背诵学习系统 —— 全文学习模式
-   交互：点击句子隐藏/显示、显示全部、逐句隐藏、关键词隐藏、上一句/下一句。 */
+   交互：点击句子隐藏/显示、显示全部、逐句隐藏、关键词隐藏、上一句/下一句。
+   逐句翻译：每句原文下面挂一条对应的现代汉语翻译（数据来自 poem.translation），
+   翻译只在该句原文“完整显示”时可见；隐藏时用 visibility 而不是 display，
+   保证翻译的布局占位始终存在，隐藏 / 显示不会让整首诗重新排版、页面跳动。 */
 (function (global) {
   'use strict';
 
@@ -33,28 +36,100 @@
     return DB.byId(state.poemId);
   }
 
+  /* ---------------- 逐句翻译 ---------------- */
+
+  /**
+   * 与 splitSentences(poem.text) 下标一一对应的翻译数组（缺翻译处为 ''）。
+   * 对齐由数据库层负责，页面只按 index 取用，不做任何字符串搜索匹配。
+   */
+  function poemTranslations(poem) {
+    if (!poem || typeof DB.translationLines !== 'function') return [];
+    return DB.translationLines(poem);
+  }
+
+  /** 翻译区域是否显示（= 该句原文是否完整显示，与 state 单一来源保持一致） */
+  function transVisible(index) {
+    return !state.hidden[index];
+  }
+
+  /* ---------------- 渲染 ---------------- */
+
+  /**
+   * 原文纯文本：完整显示 / 整句挖空 / 关键词挖空。
+   * 只产出纯文本（可安全地走 textContent），避免每次点击都重新解析 HTML。
+   */
+  function sentenceText(sentence, hidden) {
+    if (!hidden) return String(sentence);
+    if (state.keywordMode) {
+      return Utils.splitClauses(sentence)
+        .map(function (clause) {
+          return Utils.blankKeepFirst(clause);
+        })
+        .join('');
+    }
+    return Utils.makeBlank(sentence, null);
+  }
+
+  /**
+   * 逐句翻译的容器。始终留在 DOM 里，隐藏时只去掉类名、由 CSS 用 visibility 收起，
+   * 这样高度不变，不会出现“翻译消失后原文整段上移”的抽搐。
+   */
+  function renderTranslation(text, visible) {
+    return (
+      '<span class="line-zh' + (visible ? '' : ' is-off') + '" aria-hidden="true">' +
+      Utils.escapeHtml(text || '') +
+      '</span>'
+    );
+  }
+
   function renderSentences(poem) {
     var sentences = Utils.splitSentences(poem.text);
+    var translations = poemTranslations(poem);
     return sentences
       .map(function (sentence, index) {
         var hidden = !!state.hidden[index];
-        var shown = hidden
-          ? state.keywordMode
-            ? Utils.splitClauses(sentence)
-                .map(function (clause) {
-                  return Utils.blankKeepFirst(clause);
-                })
-                .join('')
-            : Utils.makeBlank(sentence, null)
-          : Utils.escapeHtml(sentence);
         var cls = 'line-item' + (hidden ? ' is-hidden' : '') + (state.activeIndex === index ? ' is-active' : '');
         return (
           '<button type="button" class="' + cls + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
-          '<span class="line-text">' + shown + brandSig() + '</span>' +
+          '<span class="line-text">' + Utils.escapeHtml(sentenceText(sentence, hidden)) + brandSig() + '</span>' +
+          renderTranslation(translations[index], transVisible(index)) +
           '</button>'
         );
       })
       .join('');
+  }
+
+  /**
+   * 只在原位上改文字与状态，不重建 DOM、不动滚动位置。
+   * 翻译的显隐只切 class（CSS 用 visibility），高度不变，所以不会整段上移。
+   */
+  function updateLines(root) {
+    var poem = currentPoem();
+    var body = root.querySelector('#poemBody');
+    if (!poem || !body) return;
+    var nodes = body.querySelectorAll('.line-item');
+    var sentences = Utils.splitSentences(poem.text);
+    if (nodes.length !== sentences.length) {
+      refreshBody(root);
+      return;
+    }
+    var translations = poemTranslations(poem);
+    for (var index = 0; index < nodes.length; index += 1) {
+      var node = nodes[index];
+      var hidden = !!state.hidden[index];
+      var textEl = node.querySelector('.line-text');
+      var zhEl = node.querySelector('.line-zh');
+      if (textEl) textEl.textContent = sentenceText(sentences[index], hidden) + brandSig();
+      if (zhEl) {
+        // 先更新文字：翻译区域由 CSS 固定占位，改文字不会影响整首诗的高度
+        zhEl.textContent = translations[index] || '';
+        // 翻译的显示条件 = 当前这一句原文完整显示
+        zhEl.classList.toggle('is-off', !transVisible(index));
+      }
+      node.classList.toggle('is-hidden', hidden);
+      node.classList.toggle('is-active', state.activeIndex === index);
+      node.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    }
   }
 
   function renderHints(poem) {
@@ -175,16 +250,28 @@
     }
   }
 
+  /** 全文重建（只在切换篇目 / 首次渲染时用）；日常交互走 updateLines，不重建 DOM */
   function refreshBody(root) {
     var poem = currentPoem();
     var body = root.querySelector('#poemBody');
     if (!poem || !body) return;
     body.innerHTML = renderSentences(poem);
+    syncToolbar(root);
+    updateCounters(root);
+  }
+
+  function syncToolbar(root) {
     var keywordBtn = root.querySelector('[data-action="toggle-keyword"]');
     if (keywordBtn) {
       keywordBtn.classList.toggle('btn-primary', state.keywordMode);
       keywordBtn.setAttribute('aria-pressed', state.keywordMode ? 'true' : 'false');
     }
+  }
+
+  /** 一次交互统一收尾：同步诗句、工具栏高亮与计数 */
+  function syncView(root) {
+    updateLines(root);
+    syncToolbar(root);
     updateCounters(root);
   }
 
@@ -215,7 +302,7 @@
     if (next < 0) next = 0;
     if (next >= total) next = total - 1;
     state.activeIndex = next;
-    refreshBody(root);
+    syncView(root);
     var active = root.querySelector('.line-item.is-active');
     if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
@@ -227,7 +314,7 @@
       if (state.hidden[index]) delete state.hidden[index];
       else state.hidden[index] = true;
       state.activeIndex = index;
-      refreshBody(root);
+      syncView(root);
       return;
     }
 
@@ -247,12 +334,12 @@
       state.hidden = {};
       state.keywordMode = false;
       state.activeIndex = -1;
-      refreshBody(root);
+      syncView(root);
     } else if (action === 'hide-all') {
       Utils.splitSentences(poem.text).forEach(function (_, index) {
         state.hidden[index] = true;
       });
-      refreshBody(root);
+      syncView(root);
     } else if (action === 'toggle-keyword') {
       state.keywordMode = !state.keywordMode;
       if (state.keywordMode) {
@@ -260,7 +347,7 @@
           state.hidden[index] = true;
         });
       }
-      refreshBody(root);
+      syncView(root);
     } else if (action === 'prev-line') {
       move(root, -1);
     } else if (action === 'next-line') {

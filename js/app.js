@@ -11,8 +11,8 @@
   var state = {
     view: 'stage',
     stage: '',
-    // 年级 / 课程模块、体裁、来源都支持多选（数组）
-    filters: { keyword: '', grade: [], genre: [], sourceType: [] },
+    // 年级 / 课程模块、体裁支持多选（数组）
+    filters: { keyword: '', grade: [], genre: [] },
   };
 
   var els = {};
@@ -154,7 +154,7 @@
     var cards = Meta.stages
       .map(function (stage) {
         var stats = DB.stats(stage.key);
-        var icon = stage.key === '初中' ? '📗' : '📘';
+      var icon = stage.key === '初中' ? '初' : '高';
         return (
           '<button type="button" class="stage-card" data-stage="' + Utils.escapeHtml(stage.key) + '">' +
             '<span class="sc-ico" aria-hidden="true">' + icon + '</span>' +
@@ -183,7 +183,7 @@
           : '') +
       '</section>' +
       '<section class="card">' +
-        '<h3 class="section-title"><span class="ico" aria-hidden="true">📌</span>数据依据</h3>' +
+        '<h3 class="section-title">数据依据</h3>' +
         '<p class="section-desc">' + Utils.escapeHtml(Meta.sources.junior.name) + '</p>' +
         '<p class="section-desc" style="margin-top:0.25rem;">' + Utils.escapeHtml(Meta.sources.senior.name) + '</p>' +
         '<p class="tiny muted" style="margin-top:0.5rem;">题库正文以统编教材现行版本为准，版本差异记录在 variants 字段；进度与错题只保存在本机浏览器。</p>' +
@@ -194,7 +194,7 @@
 
   function activeFilterCount() {
     var f = state.filters;
-    return (f.grade.length ? 1 : 0) + (f.genre.length ? 1 : 0) + (f.sourceType.length ? 1 : 0);
+    return (f.grade.length ? 1 : 0) + (f.genre.length ? 1 : 0);
   }
 
   function hashParam(name) {
@@ -225,7 +225,6 @@
       stage: state.stage,
       grade: state.filters.grade,
       genre: state.filters.genre,
-      sourceType: state.filters.sourceType,
       keyword: state.filters.keyword,
     }));
   }
@@ -251,7 +250,7 @@
       .map(function (group) {
         return (
           '<div class="group-block">' +
-            '<div class="group-heading"><span>' + Utils.escapeHtml(group.key) + '</span><span class="muted tiny">' + group.items.length + ' 篇</span><span class="group-line"></span></div>' +
+        '<div class="group-heading"><span>' + Utils.escapeHtml(group.key) + '</span><span class="muted tiny">' + group.items.length + ' 篇</span><span class="group-line" aria-hidden="true"></span></div>' +
             '<div class="poem-grid">' +
             group.items
               .map(function (poem) {
@@ -297,7 +296,6 @@
     });
     var grades = Meta.grades[stage] || [];
     var genres = Meta.genres;
-    var sources = Meta.sourceTypes;
 
     /** items：字符串或 {key,label}；current：已选中的值数组（空数组 = 全部） */
     var chips = function (items, key, current, emptyLabel) {
@@ -322,7 +320,7 @@
       '<section class="card">' +
         '<h2 class="section-title">请选择要背诵的篇目</h2>' +
         '<p class="section-desc">' + Utils.escapeHtml(stage) + '共有 ' + all.length + ' 篇，支持多选、搜索，' +
-          Utils.escapeHtml(stage === '高中' ? '按课程模块' : '按年级') + ' / 体裁 / 来源筛选，三类筛选都可以多选。</p>' +
+          Utils.escapeHtml(stage === '高中' ? '按课程模块' : '按年级') + ' / 体裁筛选，两类筛选都可以多选。</p>' +
         '<div class="toolbar" style="margin-top:0.9rem;">' +
           '<div class="search-box">' +
             '<input type="search" id="poemSearch" placeholder="搜索篇名 / 作者 / 朝代 / 关键词（如：李白）" value="' + Utils.escapeHtml(state.filters.keyword) + '" aria-label="搜索篇目">' +
@@ -330,7 +328,6 @@
           '</div>' +
           '<div class="filter-group"><span class="filter-label">' + Utils.escapeHtml((Meta.gradeLabels && Meta.gradeLabels[stage]) || '年级') + '（可多选）</span><div class="chips">' + chips(grades, 'grade', state.filters.grade, stage === '高中' ? '全部模块' : '全部年级') + '</div></div>' +
           '<div class="filter-group"><span class="filter-label">体裁（可多选）</span><div class="chips">' + chips(genres, 'genre', state.filters.genre, '全部体裁') + '</div></div>' +
-          '<div class="filter-group"><span class="filter-label">来源（可多选）</span><div class="chips">' + chips(sources, 'sourceType', state.filters.sourceType, '全部来源') + '</div></div>' +
           '<div class="select-actions">' +
             '<button type="button" class="btn btn-sm" data-action="select-all">全选当前结果</button>' +
             '<button type="button" class="btn btn-sm" data-action="select-none">取消全选</button>' +
@@ -381,10 +378,10 @@
         '<div class="bar" aria-hidden="true"><span style="width:' + learnedPct + '%"></span></div>' +
       '</section>' +
       '<div class="feature-grid">' +
-        '<button type="button" class="feature-card" data-action="study"><span class="fc-ico" aria-hidden="true">📖</span><h3>背诵学习</h3><p>逐句显示 / 隐藏、关键词隐藏、上一句下一句，先自己背一遍。</p></button>' +
-        '<button type="button" class="feature-card" data-action="quiz"><span class="fc-ico" aria-hidden="true">✍️</span><h3>默写自测</h3><p>整句挖空、给上句写下句、关键词提示等 6 种题型随机组合。</p></button>' +
-        '<button type="button" class="feature-card" data-action="to-select"><span class="fc-ico" aria-hidden="true">🗂️</span><h3>篇目列表</h3><p>查看、搜索并调整要背诵的篇目（当前 ' + total + ' 篇）。</p></button>' +
-        '<button type="button" class="feature-card" data-action="progress"><span class="fc-ico" aria-hidden="true">📊</span><h3>我的进度</h3><p>学习进度、默写正确率与错题本，全部保存在本机。</p></button>' +
+        '<button type="button" class="feature-card" data-action="study"><span class="fc-ico" aria-hidden="true">诵</span><h3>背诵学习</h3><p>逐句显示 / 隐藏、关键词隐藏、上一句下一句，先自己背一遍。</p></button>' +
+        '<button type="button" class="feature-card" data-action="quiz"><span class="fc-ico" aria-hidden="true">写</span><h3>默写自测</h3><p>整句挖空、给上句写下句、关键词提示等 6 种题型随机组合。</p></button>' +
+        '<button type="button" class="feature-card" data-action="to-select"><span class="fc-ico" aria-hidden="true">篇</span><h3>篇目列表</h3><p>查看、搜索并调整要背诵的篇目（当前 ' + total + ' 篇）。</p></button>' +
+        '<button type="button" class="feature-card" data-action="progress"><span class="fc-ico" aria-hidden="true">记</span><h3>我的进度</h3><p>学习进度、默写正确率与错题本，全部保存在本机。</p></button>' +
       '</div>' +
       (summary.wrongBook.length
         ? '<section class="card"><h3 class="section-title" style="font-size:1rem;">错题优先练</h3><div class="selected-list">' +
@@ -481,7 +478,10 @@
 
   function render() {
     var container = document.createElement('div');
-    container.className = 'view-inner';
+    /* 入场动画只在真正切换页面时播放；同一页面内的筛选 / 勾选重绘保持静止 */
+    var entering = state.view !== render.lastView;
+    render.lastView = state.view;
+    container.className = entering ? 'view-inner view-inner--enter' : 'view-inner';
 
     try {
       if (!DB.all().length) {
@@ -533,14 +533,14 @@
     if (el.hasAttribute('data-stage')) {
       state.stage = el.getAttribute('data-stage');
       Storage.patch({ stage: state.stage });
-      state.filters = { keyword: '', grade: [], genre: [], sourceType: [] };
+      state.filters = { keyword: '', grade: [], genre: [] };
       navigate('select');
       return;
     }
     if (el.hasAttribute('data-filter')) {
       var key = el.getAttribute('data-filter');
       var value = el.getAttribute('data-value') || '';
-      // 年级 / 课程模块、体裁、来源都支持多选：点“全部”清空，点某一项将其加入或移出
+      // 年级 / 课程模块、体裁都支持多选：点“全部”清空，点某一项将其加入或移出
       if (!value) {
         state.filters[key] = [];
       } else {
@@ -628,7 +628,6 @@
         stage: state.stage,
         grade: state.filters.grade,
         genre: state.filters.genre,
-        sourceType: state.filters.sourceType,
         keyword: state.filters.keyword,
       }).map(function (poem) {
         return poem.id;

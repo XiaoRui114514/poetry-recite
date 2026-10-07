@@ -32,7 +32,7 @@ function caution(message) {
 
 /* ---------------- 1. 原始数据层字段检查 ---------------- */
 
-const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'source', 'highlights', 'tags', 'notes', 'variants'];
+const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'source', 'highlights', 'tags', 'notes', 'variants'];
 const TEXT_FIELDS = ['title', 'text', 'author', 'dynasty', 'stage', 'grade', 'genre', 'sourceType', 'source'];
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const norm = (text) => String(text == null ? '' : text).replace(/\s+/g, '');
@@ -107,6 +107,43 @@ for (const { file, stageName, index, poem } of rawEntries) {
     if (/[,.!?;:]/.test(poem.text)) fail(`${where} 正文含半角标点`);
     if (/[A-Za-z0-9]/.test(poem.text)) fail(`${where} 正文含字母或数字`);
   }
+  /* 逐句翻译：必须与 Utils.splitSentences(poem.text) 严格一一对应（下标即句序）。
+     这是“原文句数 = 翻译句数”的硬约束，缺一条就说明对应关系错位。 */
+  const sentences = sb.PoetryUtils.splitSentences(poem.text);
+  if (!Array.isArray(poem.translation)) {
+    fail(`${where} 缺少 translation 数组`);
+  } else {
+    if (poem.translation.length !== sentences.length) {
+      fail(`${where} translation 长度 ${poem.translation.length} ≠ 正文句数 ${sentences.length}`);
+    }
+    poem.translation.forEach((line, i) => {
+      if (typeof line !== 'string') { fail(`${where} translation[${i}] 不是字符串`); return; }
+      if (!line.trim()) fail(`${where} translation[${i}] 为空（第 ${i + 1} 句：${sentences[i] || ''}）`);
+      if (/[\r\n\t]/.test(line)) fail(`${where} translation[${i}] 含换行 / 制表符`);
+      if (/[□]/.test(line)) fail(`${where} translation[${i}] 含占位符 □`);
+      if (/[<>]/.test(line)) fail(`${where} translation[${i}] 含 HTML 尖括号`);
+      if (/[A-Za-z]/.test(line)) caution(`${where} translation[${i}] 含拉丁字母：${line}`);
+      if (line === sentences[i]) fail(`${where} translation[${i}] 与原文完全相同`);
+    });
+  }
+}
+
+/* ---------------- 1b. 背诵提示（highlights）必须能在正文里找到 ---------------- */
+
+/* 「名句」应当是正文原句（去掉标点后做子串比对）；
+   「易错字」是按空格分隔的零散字词，逐个比对。提示里的字如果正文里根本没有，
+   说明正文或提示至少有一处写错了，必须人工确认。 */
+const bare = (text) => String(text == null ? '' : text).replace(/[^\u4e00-\u9fff0-9]/g, '');
+for (const { file, index, poem } of rawEntries) {
+  if (!isPlainObject(poem) || typeof poem.text !== 'string') continue;
+  const where = `${file} 第 ${index + 1} 条${poem.id ? '（' + poem.id + '）' : ''}`;
+  const body = bare(poem.text);
+  (poem.highlights || []).forEach((item, i) => {
+    if (!isPlainObject(item) || typeof item.text !== 'string') return;
+    const words = item.type === '易错字' ? item.text.split(/\s+/).filter(Boolean) : [item.text];
+    const missing = words.filter((word) => bare(word) && body.indexOf(bare(word)) === -1);
+    if (missing.length) fail(`${where} highlights[${i}]（${item.type || '名句'}）不在正文中：${missing.join(' / ')}`);
+  });
 }
 
 /* ---------------- 2. 重复篇目分级 ---------------- */

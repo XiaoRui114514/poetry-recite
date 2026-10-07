@@ -1,0 +1,109 @@
+/* 宣纸·朱砂 —— 上海初高古诗文背诵的设计令牌（Hallmark · editorial · Index-First）
+ *
+ * 用途：把本项目已锁定的设计系统移植到其他项目。
+ * 注意：应用本身运行的是 assets/styles.css（单文件打包 build.js 会整段内联它，
+ *      因此运行时令牌声明在那份文件的 :root 中）。本文件是同源导出，
+ *      两处取值必须保持一致；改令牌时请同时改 assets/styles.css 并重跑 node build.js。
+ * 参考：design.md
+ */
+
+:root {
+  /* ---- 颜色 · 纸与墨（暖调，无纯黑纯白） ---- */
+  --color-paper: oklch(96.5% 0.012 85);
+  --color-paper-2: oklch(94% 0.015 82);
+  --color-paper-3: oklch(91.5% 0.017 80);
+  --color-ink: oklch(25% 0.016 60);
+  --color-ink-2: oklch(38% 0.014 62);
+  --color-ink-3: oklch(50% 0.013 66);
+  --color-rule: oklch(85% 0.013 78);
+  --color-rule-2: oklch(76% 0.014 76);
+  --color-scrim: oklch(20% 0.02 60 / 0.55);
+
+  /* ---- 颜色 · 朱砂（唯一强调色，用量 < 3% 视口） ---- */
+  --color-accent: oklch(52% 0.16 28);
+  --color-accent-2: oklch(44% 0.14 26);
+  --color-accent-ink: oklch(97% 0.012 85);
+  --color-accent-wash: oklch(93.5% 0.035 30);
+  --color-focus: oklch(48% 0.17 28);
+
+  /* ---- 颜色 · 语义（对 = 竹青 / 错 = 绛 / 提示 = 赭） ---- */
+  --color-ok: oklch(46% 0.095 155);
+  --color-ok-ink: oklch(97% 0.012 155);
+  --color-ok-wash: oklch(93% 0.035 155);
+  --color-bad: oklch(45% 0.155 14);
+  --color-bad-wash: oklch(93.5% 0.035 14);
+  --color-warn: oklch(52% 0.11 75);
+  --color-warn-wash: oklch(94% 0.04 80);
+
+  /* ---- 字体（2 + 1；中文环境下用系统字面，保证离线单文件可用） ---- */
+  --font-display: "Songti SC", "Source Han Serif SC", "Noto Serif SC", "SimSun", "STSong", serif;
+  --font-body: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-verse: "Kaiti SC", "STKaiti", "KaiTi", "楷体", "FangSong", "仿宋", "Songti SC", "SimSun", serif;
+
+  /* ---- 间距（4pt 刻度） ---- */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --app-pad: clamp(1rem, 4vw, 1.5rem);
+
+  /* ---- 字号（1.25 比例；正文不小于 16px） ---- */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-display: clamp(1.625rem, 1.1rem + 2vw, 2.5rem);
+
+  /* ---- 动效（只服务状态反馈；本主题不做入场动画） ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --dur-long: 320ms;
+
+  /* ---- 圆角 / 层级 / 触控下限 ---- */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius: 4px;
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 20;
+  --z-seal: 30;
+  --z-toast: 40;
+  --z-modal: 50;
+  --tap-min: 2.75rem;
+}
+
+html[data-theme='dark'] {
+  --color-paper: oklch(17% 0.010 65);
+  --color-paper-2: oklch(21% 0.012 65);
+  --color-paper-3: oklch(25% 0.013 66);
+  --color-ink: oklch(93% 0.010 85);
+  --color-ink-2: oklch(78% 0.012 82);
+  --color-ink-3: oklch(64% 0.013 80);
+  --color-rule: oklch(33% 0.011 66);
+  --color-rule-2: oklch(43% 0.012 68);
+  --color-scrim: oklch(8% 0.01 60 / 0.7);
+  --color-accent: oklch(67% 0.145 30);
+  --color-accent-2: oklch(74% 0.13 32);
+  --color-accent-ink: oklch(18% 0.02 30);
+  --color-accent-wash: oklch(26% 0.05 28);
+  --color-focus: oklch(72% 0.15 30);
+  --color-ok: oklch(74% 0.10 155);
+  --color-ok-ink: oklch(18% 0.02 155);
+  --color-ok-wash: oklch(26% 0.035 155);
+  --color-bad: oklch(72% 0.14 14);
+  --color-bad-wash: oklch(27% 0.05 14);
+  --color-warn: oklch(78% 0.10 80);
+  --color-warn-wash: oklch(28% 0.04 80);
+  color-scheme: dark;
+}

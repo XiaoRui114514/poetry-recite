@@ -63,6 +63,10 @@
       required: !!poem.required,
       recommended: poem.recommended !== false,
       text: text,
+      // 逐句现代汉语翻译：严格对应 Utils.splitSentences(text)，长度不一致时按“缺翻译”处理
+      translations: Utils.toArray(poem.translation).filter(function (item) {
+        return typeof item === 'string';
+      }),
       source: String(poem.source || '').trim(),
       notes: String(poem.notes || '').trim(),
       highlights: Utils.toArray(poem.highlights).filter(function (item) {
@@ -199,6 +203,19 @@
     });
   }
 
+  /**
+   * 逐句翻译，与 Utils.splitSentences(poem.text) 的下标严格一一对应。
+   * 缺翻译的位置返回空字符串（页面据此不显示翻译文字，但布局占位仍然保留）。
+   */
+  function translationLines(poem) {
+    var sentences = Utils.splitSentences(poem ? poem.text : '');
+    var list = Utils.toArray(poem ? poem.translations : []);
+    return sentences.map(function (_, index) {
+      var line = list[index];
+      return typeof line === 'string' ? line.trim() : '';
+    });
+  }
+
   function highlightMap(poem) {
     var map = Object.create(null);
     Utils.toArray(poem.highlights).forEach(function (item) {
@@ -223,6 +240,7 @@
     countBy: countBy,
     gradeOrder: gradeOrder,
     highlightMap: highlightMap,
+    translationLines: translationLines,
     stats: function (stage) {
       var list = stage ? byStage(stage) : poems.slice();
       return {
