@@ -171,7 +171,7 @@ eq('HTML 转义不遗漏引号', U.escapeHtml(`<a href="x">'&`), '&lt;a href=&qu
 
 /* ========== 3. 原始数据层（未经 normalize 的真实数组） ========== */
 
-const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'source', 'highlights', 'tags', 'notes', 'variants'];
+const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'summary', 'examFocus', 'source', 'highlights', 'tags', 'notes', 'variants'];
 const rawEntries = [
   ...Junior.map((poem) => ({ file: 'data/junior.js', stage: '初中', poem })),
   ...Senior.map((poem) => ({ file: 'data/senior.js', stage: '高中', poem })),
@@ -263,6 +263,78 @@ eq('数据库层 translationLines 对缺翻译的位置补齐为空串', (() => 
 check('数据库层 translationLines 容忍非数组 / 空篇目',
   DB.translationLines({ text: '甲乙。', translations: null }).join('|') === '' &&
   DB.translationLines(null).length === 0);
+
+/* 考试重点星标：数据里只有句子下标，正文绝不含 ★；下标必须落在正文句数范围内。
+   这是全文学习页「marker 与句子正确绑定、星标不污染正文」的前提。 */
+const focusIssues = [];
+let focusTotal = 0;
+rawEntries.forEach(({ file, poem }) => {
+  const sentences = U.splitSentences(poem.text);
+  if (typeof poem.text !== 'string' || !poem.text) return;
+  if (/[★☆]/.test(poem.text)) focusIssues.push(`${file}/${poem.id} 正文里出现了星标符号`);
+  if (typeof poem.title === 'string' && /[★☆]/.test(poem.title)) {
+    focusIssues.push(`${file}/${poem.id} 标题里出现了星标符号`);
+  }
+  if (!Array.isArray(poem.examFocus)) {
+    focusIssues.push(`${file}/${poem.id} 缺少 examFocus 数组`);
+    return;
+  }
+  if (!poem.examFocus.length) focusIssues.push(`${file}/${poem.id} examFocus 为空`);
+  const seen = new Set();
+  const seenReason = new Set();
+  poem.examFocus.forEach((item, i) => {
+    if (!item || !Number.isInteger(item.index)) {
+      focusIssues.push(`${file}/${poem.id} examFocus[${i}] 缺少整数 index`);
+      return;
+    }
+    if (item.index < 0 || item.index >= sentences.length) {
+      focusIssues.push(`${file}/${poem.id} examFocus[${i}] index=${item.index} 越界（共 ${sentences.length} 句）`);
+    }
+    if (seen.has(item.index)) focusIssues.push(`${file}/${poem.id} examFocus 下标重复 ${item.index}`);
+    seen.add(item.index);
+    if (!item.reason || !String(item.reason).trim()) focusIssues.push(`${file}/${poem.id} examFocus[${i}] 缺少 reason`);
+    // 同一篇里两句话的依据不该完全一样（多半是复制粘贴没改）
+    const reason = String(item.reason || '').trim();
+    if (reason && seenReason.has(reason)) focusIssues.push(`${file}/${poem.id} examFocus[${i}] reason 重复：${reason}`);
+    seenReason.add(reason);
+    focusTotal += 1;
+  });
+});
+check('每篇都有考试重点标记且下标落在正文句数范围内', focusIssues.length === 0, focusIssues.slice(0, 5).join('; '));
+check('正文与标题里都不含 ★（星标只存在于 examFocus 元数据）',
+  rawEntries.every(({ poem }) => !/[★☆]/.test(String(poem.text || '')) && !/[★☆]/.test(String(poem.title || ''))));
+check('考试重点标记总量合理（平均每篇 1～8 句）', (() => {
+  const avg = focusTotal / rawEntries.length;
+  return focusTotal > 0 && avg >= 1 && avg <= 8;
+})(), '共 ' + focusTotal + ' 句 / ' + rawEntries.length + ' 篇');
+
+/* 中心思想 / 主旨：文章级信息，每篇都有，简短且不含星标 */
+const summaryIssues = [];
+rawEntries.forEach(({ file, poem }) => {
+  const summary = String(poem.summary == null ? '' : poem.summary).trim();
+  if (!summary) { summaryIssues.push(`${file}/${poem.id} 缺少 summary`); return; }
+  if (/[\r\n]/.test(summary)) summaryIssues.push(`${file}/${poem.id} summary 含换行`);
+  if (/[★☆]/.test(summary)) summaryIssues.push(`${file}/${poem.id} summary 含星标`);
+  if (summary.length > 120) summaryIssues.push(`${file}/${poem.id} summary 过长 ${summary.length} 字`);
+  if (summary.length < 20) summaryIssues.push(`${file}/${poem.id} summary 过短 ${summary.length} 字`);
+});
+check('每篇都有简短的中心思想 / 主旨且不含星标', summaryIssues.length === 0, summaryIssues.slice(0, 5).join('; '));
+
+/* 数据库层：examFocusMap 只保留合法下标，越界 / 坏数据不会让页面报错 */
+eq('数据库层 examFocusMap 按句子下标对齐', (() => {
+  const map = DB.examFocusMap(DB.byId('guan-cang-hai'));
+  return Object.keys(map).map(Number).sort((a, b) => a - b).join(',');
+})(), DB.byId('guan-cang-hai').examFocus.map((f) => f.index).sort((a, b) => a - b).join(','));
+eq('数据库层 examFocusMap 丢弃越界下标', (() => {
+  const fake = { text: '甲乙。丙丁。', examFocus: [{ index: 0, reason: 'a' }, { index: 5, reason: 'b' }, { index: -1, reason: 'c' }] };
+  return Object.keys(DB.examFocusMap(fake)).join(',');
+})(), '0');
+check('数据库层 examFocusMap 容忍缺失 / 非数组 / 空篇目',
+  Object.keys(DB.examFocusMap({ text: '甲乙。' })).length === 0 &&
+  Object.keys(DB.examFocusMap({ text: '甲乙。', examFocus: null })).length === 0 &&
+  Object.keys(DB.examFocusMap(null)).length === 0);
+check('数据库层每篇都能给出 summary',
+  DB.all().every((poem) => typeof poem.summary === 'string' && poem.summary.length > 0));
 
 const fieldValueIssues = [];
 rawEntries.forEach(({ file, stage, poem }) => {

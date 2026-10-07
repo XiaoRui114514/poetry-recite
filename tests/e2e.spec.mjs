@@ -26,6 +26,11 @@ function sourceCounts() {
   /* 逐句翻译期望值直接从题库里取，避免测试写死译文后与数据脱节 */
   const guanCangHai = junior.find((poem) => poem.id === 'guan-cang-hai');
   const guanCangHaiTranslation = guanCangHai.translation;
+  /* 考试重点 + 中心思想的期望值同样从题库算出来 */
+  const guanCangHaiFocus = guanCangHai.examFocus.map((item) => item.index);
+  const guanCangHaiSummary = guanCangHai.summary;
+  const allPoems = junior.concat(senior);
+  const focusCounts = allPoems.map((poem) => poem.examFocus.length);
   const gradesOf = (poem) => (Array.isArray(poem.grades) && poem.grades.length ? poem.grades : [poem.grade]);
   const countGrades = (list, grades) => list.filter((poem) => grades.some((grade) => gradesOf(poem).includes(grade))).length;
   const countQuery = (list, query) => list.filter((poem) => {
@@ -51,6 +56,10 @@ function sourceCounts() {
     firstJuniorId: junior[0].id,
     unselectedJuniorId: junior.find((poem) => poem.id !== 'guan-ju' && poem.id !== 'jian-jia').id,
     guanCangHaiTranslation: guanCangHaiTranslation,
+    guanCangHaiFocus: guanCangHaiFocus,
+    guanCangHaiSummary: guanCangHaiSummary,
+    totalPoems: allPoems.length,
+    totalFocus: focusCounts.reduce((sum, n) => sum + n, 0),
     repoUrl: repo.url,
     repoLabel: repo.label,
   };
@@ -1305,3 +1314,240 @@ test('来源筛选分区已移除，体裁筛选仍支持多选', async ({ page 
   );
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+/** 直接进入某篇的全文学习页 */
+async function openStudy(page, stage, title) {
+  await gotoFresh(page);
+  await chooseStage(page, stage);
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, [title]);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+  await expect(page.locator('.line-item').first()).toBeVisible();
+}
+
+/**
+ * 采集 marker 与原文的几何信息。
+ * 关键指标：
+ *   - textLeft：每一句原文左边缘（必须在任何状态下完全一致）
+ *   - starOnFirstLine：★ 是否和原文的**第一行**在同一视觉行上（长句换行时不能在第二行）
+ *   - markerWidth：marker 列宽（必须恒定，星标显隐都不变）
+ */
+async function markerMetrics(page) {
+  return page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#poemBody .line-item')];
+    const info = rows.map((row) => {
+      const marker = row.querySelector('.line-marker');
+      const text = row.querySelector('.line-text');
+      const mRect = marker.getBoundingClientRect();
+      const tRect = text.getBoundingClientRect();
+      const lineHeight = parseFloat(getComputedStyle(text).lineHeight) || 24;
+      return {
+        star: marker.textContent,
+        visibility: getComputedStyle(marker).visibility,
+        textLeft: Math.round(tRect.left * 100) / 100,
+        markerWidth: Math.round(mRect.width * 100) / 100,
+        hasBox: mRect.width > 0,
+        // ★ 的竖直中心若落在第一行行盒内，说明和第一行对齐
+        starOnFirstLine: mRect.width > 0 && Math.abs(mRect.top + mRect.height / 2 - (tRect.top + lineHeight / 2)) <= lineHeight,
+      };
+    });
+    const markers = [...document.querySelectorAll('#poemBody .line-marker')];
+    return {
+      info,
+      markerCount: markers.length,
+      markersWithStar: markers.filter((m) => m.textContent === '★').length,
+      markersStarVisible: markers.filter((m) => m.textContent === '★' && getComputedStyle(m).visibility !== 'hidden').length,
+      emptyMarkers: markers.filter((m) => !m.textContent).length,
+      // 同一个 marker 在被挖空后必须仍然存在且仍然占宽
+      minMarkerWidth: Math.min(...markers.map((m) => m.getBoundingClientRect().width)),
+      bodyHeight: Math.round(document.getElementById('poemBody').getBoundingClientRect().height),
+      docHeight: document.documentElement.scrollHeight,
+      overflow: Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, 0),
+      starInText: [...document.querySelectorAll('.line-text')].some((t) => t.textContent.includes('★')),
+    };
+  });
+}
+
+test('全文学习：考试重点 ★ 独立于正文，marker 固定占位，星标随显隐同步', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openStudy(page, '初中', '观沧海');
+
+  const lines = page.locator('#poemBody .line-item');
+  await expect(lines).toHaveCount(6);
+
+  const focus = COUNTS.guanCangHaiFocus.slice().sort((a, b) => a - b);
+  expect(focus.length, '观沧海应有重点句').toBeGreaterThan(0);
+
+  /* 1. 显示全部：★ 只出现在 examFocus 指定的那几句上，正文里绝不能有 ★ */
+  const base = await markerMetrics(page);
+  expect(base.markerCount, '每一句都要有 marker 元素（有没有星都要占位）').toBe(6);
+  expect(base.starInText, '原文文本里绝不能出现 ★').toBe(false);
+
+  const starLines = base.info.map((x, i) => (x.star === '★' ? i : -1)).filter((i) => i >= 0);
+  expect(starLines, '★ 必须落在 examFocus 指定的句子上').toEqual(focus);
+  focus.forEach((i) => expect(base.info[i].star, `第 ${i} 句应有 ★`).toBe('★'));
+  expect(base.markersStarVisible).toBe(focus.length);
+
+  /* 2. 原文左边缘完全一致（有星 / 无星都一样），marker 列宽恒定 */
+  const lefts = base.info.map((x) => x.textLeft);
+  expect(new Set(lefts).size, `原文左边缘必须完全一致，实际 ${JSON.stringify(lefts)}`).toBe(1);
+  expect(new Set(base.info.map((x) => x.markerWidth)).size, '所有 marker 列宽必须恒定').toBe(1);
+  expect(base.minMarkerWidth, 'marker 必须有固定占位宽度').toBeGreaterThan(10);
+  // 长句换行时 ★ 也必须贴在第一行，不能掉到第二行
+  base.info.forEach((x, i) => {
+    if (x.star !== '★') return;
+    expect(x.starOnFirstLine, `★ 应与原文第一行对齐（第 ${i} 句）`).toBe(true);
+  });
+
+  const stable = async (label) => {
+    const m = await markerMetrics(page);
+    expect(m.bodyHeight, `${label}：poemBody 高度不应变化`).toBe(base.bodyHeight);
+    expect(m.docHeight, `${label}：文档总高度不应变化`).toBe(base.docHeight);
+    expect(m.overflow, `${label}：不应出现横向溢出`).toBe(0);
+    expect(m.markerCount, `${label}：marker 数量不应变化`).toBe(6);
+    expect(new Set(m.info.map((x) => x.textLeft)).size, `${label}：原文左边缘不应移动`).toBe(1);
+    expect(m.info[0].textLeft, `${label}：原文左边缘位置应回到原值`).toBe(base.info[0].textLeft);
+    expect(new Set(m.info.map((x) => x.markerWidth)).size, `${label}：marker 列宽不应变化`).toBe(1);
+    expect(m.info[0].markerWidth, `${label}：marker 列宽应回到原值`).toBe(base.info[0].markerWidth);
+    expect(m.info.every((x) => x.hasBox), `${label}：marker 占位不应消失`).toBe(true);
+    return m;
+  };
+
+  /* 3. 点击“有星”的句子 → ★ 视觉上消失，但 marker 仍在 DOM、仍占宽 */
+  const starIndex = focus[0];
+  await lines.nth(starIndex).click();
+  await expect(lines.nth(starIndex)).toHaveClass(/is-hidden/);
+  let now = await stable('隐藏重点句');
+  expect(now.info[starIndex].star, '★ 字符仍保留在 marker 里（只做视觉隐藏）').toBe('★');
+  expect(now.info[starIndex].visibility, '星标应被隐藏').toBe('hidden');
+  expect(now.markersStarVisible, '隐藏重点句后可见 ★ 少一个').toBe(focus.length - 1);
+
+  /* 4. 再点一次 → ★ 恢复，位置不变 */
+  await lines.nth(starIndex).click();
+  now = await stable('恢复重点句');
+  expect(now.info[starIndex].visibility).toBe('visible');
+  expect(now.markersStarVisible).toBe(focus.length);
+
+  /* 5. 点击“无星”的句子 → 星标不受影响，marker 继续占位 */
+  const plainIndex = [0, 1, 2, 3, 4, 5].find((i) => !focus.includes(i));
+  await lines.nth(plainIndex).click();
+  now = await stable('隐藏普通句');
+  expect(now.info[plainIndex].star, '普通句的 marker 里本来就没有 ★').toBe('');
+  expect(now.markersStarVisible, '隐藏普通句不应影响别的星标').toBe(focus.length);
+  await lines.nth(plainIndex).click();
+  await stable('恢复普通句');
+
+  /* 6. 逐句隐藏 → 所有 ★ 隐藏，所有翻译隐藏，marker 占位全部保留 */
+  await page.click('[data-action="hide-all"]');
+  await expect(page.locator('#poemBody .line-item.is-hidden')).toHaveCount(6);
+  now = await stable('逐句隐藏');
+  expect(now.markersStarVisible, '逐句隐藏时所有 ★ 都必须隐藏').toBe(0);
+  expect(now.markersWithStar, '★ 字符仍在 DOM 里，只是被 visibility 收起').toBe(focus.length);
+  expect(now.emptyMarkers).toBe(6 - focus.length);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+
+  /* 7. 显示全部 → ★ 与翻译都恢复 */
+  await page.click('[data-action="reveal-all"]');
+  now = await stable('显示全部');
+  expect(now.markersStarVisible).toBe(focus.length);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(6);
+
+  /* 8. 关键词隐藏 → 星标必须一起隐藏（不能出现「★ 先□□」这种情况） */
+  await page.click('[data-action="toggle-keyword"]');
+  now = await stable('关键词隐藏');
+  expect(now.markersStarVisible, '关键词隐藏时 ★ 也必须隐藏').toBe(0);
+  expect(now.markersWithStar).toBe(focus.length);
+  await expect(page.locator('.line-zh:not(.is-off)')).toHaveCount(0);
+
+  /* 9. 恢复后再反复切换，布局不许漂移 */
+  await page.click('[data-action="reveal-all"]');
+  await stable('关键词后恢复');
+  for (let i = 0; i < 4; i += 1) {
+    await page.click('[data-action="hide-all"]');
+    await page.click('[data-action="reveal-all"]');
+  }
+  now = await stable('反复切换 x4');
+  expect(now.markersStarVisible).toBe(focus.length);
+
+  /* 10. 上一句 / 下一句时星标状态保持正确 */
+  await page.click('[data-action="next-line"]');
+  await stable('下一句');
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('全文学习：中心思想 / 主旨作为文章级信息出现在诗文之后，且不重复渲染', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openStudy(page, '初中', '观沧海');
+
+  const summary = page.locator('.poem-summary');
+  await expect(summary).toHaveCount(1);
+  await expect(summary.locator('.poem-summary-label')).toHaveText('主旨');
+  await expect(summary.locator('.poem-summary-text')).toHaveText(COUNTS.guanCangHaiSummary);
+
+  // 属于文章级信息：必须排在所有句子之后，不能塞进任何句子
+  const order = await page.evaluate(() => {
+    const body = document.getElementById('poemBody');
+    const block = document.querySelector('.poem-summary');
+    const rows = [...document.querySelectorAll('#poemBody .line-item')];
+    return {
+      afterBody: !!(body.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING),
+      lastRowBefore: rows.length ? !!(rows[rows.length - 1].compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING) : false,
+      insideLine: [...document.querySelectorAll('.line-item')].some((r) => r.contains(block)),
+      countInBody: body.querySelectorAll('.poem-summary').length,
+    };
+  });
+  expect(order.afterBody, '中心思想必须排在诗文内容之后').toBe(true);
+  expect(order.lastRowBefore, '中心思想必须在最后一句之后').toBe(true);
+  expect(order.insideLine, '中心思想不能被塞进某一句里重复几十次').toBe(false);
+  expect(order.countInBody).toBe(0);
+
+  // 正文长度不变：中心思想不应改变任何句子的横向位置
+  const before = await markerMetrics(page);
+  await page.click('[data-action="hide-all"]');
+  await page.click('[data-action="reveal-all"]');
+  const after = await markerMetrics(page);
+  expect(after.docHeight, '隐藏 / 显示后文档高度（含中心思想区域）不应变化').toBe(before.docHeight);
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('全文学习：文言文用「中心思想」标签，长篇文言文每句都有 marker 且不溢出', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openStudy(page, '初中', '岳阳楼记');
+
+  const lines = page.locator('#poemBody .line-item');
+  const count = await lines.count();
+  expect(count, '岳阳楼记应有 22 句').toBe(22);
+
+  // 每一句都必须有 marker（无论有没有 ★），翻译齐全
+  const m = await markerMetrics(page);
+  expect(m.markerCount).toBe(count);
+  expect(m.info.every((x) => x.hasBox)).toBe(true);
+  expect(new Set(m.info.map((x) => x.textLeft)).size).toBe(1);
+  expect(m.overflow).toBe(0);
+  await expect(page.locator('#poemBody .line-zh')).toHaveCount(count);
+
+  // 文言文的标签是「中心思想」
+  await expect(page.locator('.poem-summary-label')).toHaveText('中心思想');
+  const text = await page.locator('.poem-summary-text').textContent();
+  expect(text.trim().length).toBeGreaterThan(20);
+
+  // ★ 数量要与数据一致，且正文里没有 ★
+  const focusCount = await page.evaluate(() => window.PoetryDatabase.byId('yue-yang-lou-ji').examFocus.length);
+  expect(m.markersStarVisible).toBe(focusCount);
+  expect(m.starInText).toBe(false);
+
+  // 关键词隐藏后星标全灭、marker 仍占位
+  await page.click('[data-action="toggle-keyword"]');
+  const k = await markerMetrics(page);
+  expect(k.markersStarVisible).toBe(0);
+  expect(k.markerCount).toBe(count);
+  expect(k.info.every((x) => x.hasBox)).toBe(true);
+  expect(new Set(k.info.map((x) => x.textLeft)).size).toBe(1);
+  expect(k.overflow).toBe(0);
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+

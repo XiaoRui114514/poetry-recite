@@ -39,6 +39,8 @@
 | `recommended` | 是 | 是否推荐学习 |
 | `text` | 是 | 正文，全角标点，无换行 |
 | `translation` | 是 | 逐句现代汉语翻译数组，**长度必须等于 `Utils.splitSentences(text)` 的句数**，下标即句序；详见 `docs/逐句翻译维护规范.md` |
+| `summary` | 是 | 中心思想 / 主旨，40～110 字，1～3 句话，**不含 ★**；详见 `docs/考试重点与中心思想维护规范.md` |
+| `examFocus` | 是 | 考试重点句 `[{ index, reason }]`：`index` 是 `Utils.splitSentences(text)` 的下标（整数、界内、不重复），`reason` 是内部判定依据（不在界面显示，禁止写年份 / 「中考真题」/「高频」等不可核查表述）。**`★` 绝不能写进 `text`** |
 | `source` | 是 | 出处，例如 `《普通高中语文课程标准（2017年版2020年修订）》附录1 · 诗词曲第26首` |
 | `notes` | 否 | 说明，例如课标指定节选范围 |
 | `highlights` | 否 | 背诵提示：`{ type: '名句' \| '易错字' \| '关键词', text: '…' }` |
@@ -64,6 +66,11 @@
     "面对美酒应当高歌，人生短暂能有多少时光！",
     "……（与 splitSentences(text) 一一对应，逐句直译，不写赏析）"
   ],
+  "summary": "本诗以宴饮歌唱起笔，感慨人生短暂、求贤若渴，借《子衿》《鹿鸣》表达对贤才的思慕，最后以周公吐哺自比，抒发招揽天下贤才、建功立业的雄心壮志。",
+  "examFocus": [
+    { "index": 0, "reason": "名句，感叹人生短暂，默写常考" },
+    { "index": 8, "reason": "主旨句，名句，以周公吐哺表求贤之心" }
+  ],
   "source": "《普通高中语文课程标准（2017年版2020年修订）》附录1 · 诗词曲第5首",
   "notes": "",
   "highlights": [
@@ -84,10 +91,15 @@
 要求：
 1. 只输出符合规范的 JSON 数组，不要输出解释文字。
 2. 每条数据必须包含：id、title、author、dynasty、stage、grade、genre、
-   sourceType、required、recommended、text、translation、source。
+   sourceType、required、recommended、text、translation、summary、examFocus、source。
 3. 正文以统编教材通行版本为准，使用全角标点，不要换行，不要加入注释或译文。
    translation 是**逐句直译**：长度必须等于把 text 按 。！？… 切分后的句数，
    第 k 条译文只对应第 k 句原文；不写赏析、不合并句子、不调换顺序。
+   summary 是中心思想 / 主旨（40～110 字，1～3 句话，写清「写了什么 + 表达什么」）。
+   examFocus 是考试重点句数组 [{ index, reason }]：index 是切分后的句子下标（整数、界内、不重复），
+   reason 只写可核查的依据类型（主旨句 / 名句默写常考 / 含通假字与词类活用 / 易错字密集），
+   **严禁**写年份、「中考真题」「高考真题」「一模」「二模」「高频」等无法核查的频率表述。
+   **严禁把 ★ 写进 text、title 或 summary。**
 4. 如果存在教材版本差异，写入 variants，不要合并进正文。
 5. 年级 / 课程模块只能从 `data/metadata.js` 的 `grades` 里取值：
    初中用「六年级…九年级」，高中用「必修 / 选择性必修 / 选修」
@@ -109,6 +121,10 @@
 - [ ] 把译文、注释、鉴赏混进 `text`
 - [ ] `translation` 条数与正文句数不一致（会导致逐句翻译错位 / 缺翻译）
 - [ ] `translation` 写成整首串讲、赏析，或与原文完全相同（等于漏译）
+- [ ] **把 `★` 写进 `text` / `title` / `summary`**（星标只能存在于 `examFocus` 元数据里）
+- [ ] `examFocus` 的 `index` 越界、重复，或数与正文句数不符（会导致 marker 与句子错位）
+- [ ] `examFocus` 的 `reason` 写了年份 / 「中考真题」/「高频」等无法核查的表述
+- [ ] 缺少 `summary`，或 `summary` 写成长篇赏析 / 作者生平 / 写作背景
 - [ ] 课标节选篇目录了全文（例如《离骚》《报任安书》只录课标指定范围）
 - [ ] 异文未写入 `variants`，直接与教材版本混排
 - [ ] `sourceType` 用错（把教材篇目写成课标推荐）
@@ -121,3 +137,7 @@
 
 改了 `text` 就必须同步 `translation`（句数可能变化）：按 `docs/逐句翻译维护规范.md`
 里的流程重跑 `tools/translations/` 下的脚本。
+
+改了 `text` 还必须**重新核对 `examFocus` 的下标**（切分结果会变）：
+按 `docs/考试重点与中心思想维护规范.md` 里的流程重跑 `tools/meta/` 下的脚本，
+并运行 `node tools/qa-data.cjs` 确认下标全部落在正文句数范围内。

@@ -2,7 +2,10 @@
    交互：点击句子隐藏/显示、显示全部、逐句隐藏、关键词隐藏、上一句/下一句。
    逐句翻译：每句原文下面挂一条对应的现代汉语翻译（数据来自 poem.translation），
    翻译只在该句原文“完整显示”时可见；隐藏时用 visibility 而不是 display，
-   保证翻译的布局占位始终存在，隐藏 / 显示不会让整首诗重新排版、页面跳动。 */
+   保证翻译的布局占位始终存在，隐藏 / 显示不会让整首诗重新排版、页面跳动。
+   考试重点星标：正文左侧是独立的 marker 列（数据来自 poem.examFocus，只存句子下标），
+   ★ 只出现在 marker 里，绝不进入正文文本；marker 列宽固定，有没有 ★ 都由 CSS 留位，
+   所以任何显隐状态都不会让原文左右移动。 */
 (function (global) {
   'use strict';
 
@@ -52,6 +55,36 @@
     return !state.hidden[index];
   }
 
+  /* ---------------- 考试重点星标 ---------------- */
+
+  /**
+   * 与 splitSentences(poem.text) 下标一一对应的重点标记表：{ index: { reason } }。
+   * 只按 index 取用，不做任何字符串匹配；数据缺失 / 越界时返回空表（页面照常渲染）。
+   */
+  function examFocusMap(poem) {
+    if (!poem || typeof DB.examFocusMap !== 'function') return Object.create(null);
+    return DB.examFocusMap(poem);
+  }
+
+  /**
+   * 星标是否可见：同样以“该句原文完整显示”为唯一条件。
+   * 逐句隐藏 / 逐句隐藏全部 / 关键词隐藏时原文被挖空，此时不显示 ★。
+   */
+  function examVisible(index) {
+    return !state.hidden[index];
+  }
+
+  /* ---------------- 中心思想 / 主旨 ---------------- */
+
+  /** 中心思想属于“文章级信息”，诗词用「主旨」，文言文用「中心思想」 */
+  function summaryLabel(poem) {
+    return poem && poem.genre === '文言文' ? '中心思想' : '主旨';
+  }
+
+  function summaryText(poem) {
+    return poem && typeof poem.summary === 'string' ? poem.summary.trim() : '';
+  }
+
   /* ---------------- 渲染 ---------------- */
 
   /**
@@ -71,6 +104,19 @@
   }
 
   /**
+   * 重点标记列。**始终**输出同一个元素：有重点时里面是 ★，没有重点时是空的，
+   * 由 CSS 固定列宽保证「有没有 ★」都不影响原文的横向起始位置。
+   * 隐藏只切 is-off（CSS visibility），绝不用 display: none。
+   */
+  function renderMarker(isFocus, visible) {
+    return (
+      '<span class="line-marker' + (visible ? '' : ' is-off') + '" aria-hidden="true">' +
+      (isFocus ? '★' : '') +
+      '</span>'
+    );
+  }
+
+  /**
    * 逐句翻译的容器。始终留在 DOM 里，隐藏时只去掉类名、由 CSS 用 visibility 收起，
    * 这样高度不变，不会出现“翻译消失后原文整段上移”的抽搐。
    */
@@ -85,14 +131,19 @@
   function renderSentences(poem) {
     var sentences = Utils.splitSentences(poem.text);
     var translations = poemTranslations(poem);
+    var focus = examFocusMap(poem);
     return sentences
       .map(function (sentence, index) {
         var hidden = !!state.hidden[index];
         var cls = 'line-item' + (hidden ? ' is-hidden' : '') + (state.activeIndex === index ? ' is-active' : '');
         return (
           '<button type="button" class="' + cls + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
+          // marker 与正文是两个相互独立的元素：★ 永远不会拼进诗句字符串
+          renderMarker(!!focus[index], examVisible(index)) +
+          '<span class="line-content">' +
           '<span class="line-text">' + Utils.escapeHtml(sentenceText(sentence, hidden)) + brandSig() + '</span>' +
           renderTranslation(translations[index], transVisible(index)) +
+          '</span>' +
           '</button>'
         );
       })
@@ -101,7 +152,7 @@
 
   /**
    * 只在原位上改文字与状态，不重建 DOM、不动滚动位置。
-   * 翻译的显隐只切 class（CSS 用 visibility），高度不变，所以不会整段上移。
+   * marker / 翻译的显隐只切 class（CSS 用 visibility），列宽与高度都不变，所以不会整段上移。
    */
   function updateLines(root) {
     var poem = currentPoem();
@@ -114,17 +165,24 @@
       return;
     }
     var translations = poemTranslations(poem);
+    var focus = examFocusMap(poem);
     for (var index = 0; index < nodes.length; index += 1) {
       var node = nodes[index];
       var hidden = !!state.hidden[index];
       var textEl = node.querySelector('.line-text');
       var zhEl = node.querySelector('.line-zh');
+      var markerEl = node.querySelector('.line-marker');
       if (textEl) textEl.textContent = sentenceText(sentences[index], hidden) + brandSig();
       if (zhEl) {
         // 先更新文字：翻译区域由 CSS 固定占位，改文字不会影响整首诗的高度
         zhEl.textContent = translations[index] || '';
         // 翻译的显示条件 = 当前这一句原文完整显示
         zhEl.classList.toggle('is-off', !transVisible(index));
+      }
+      if (markerEl) {
+        // 星标只由「这一句是不是重点 + 原文是否完整显示」决定，与正文内容无关
+        markerEl.textContent = focus[index] ? '★' : '';
+        markerEl.classList.toggle('is-off', !examVisible(index));
       }
       node.classList.toggle('is-hidden', hidden);
       node.classList.toggle('is-active', state.activeIndex === index);
@@ -155,6 +213,18 @@
         );
       })
       .join('');
+  }
+
+  /** 中心思想 / 主旨：文章级信息，放在整篇诗文之后；没有数据时整块不渲染 */
+  function renderSummary(poem) {
+    var text = summaryText(poem);
+    if (!text) return '';
+    return (
+      '<div class="poem-summary">' +
+        '<span class="poem-summary-label">' + Utils.escapeHtml(summaryLabel(poem)) + '</span>' +
+        '<p class="poem-summary-text">' + Utils.escapeHtml(text) + '</p>' +
+      '</div>'
+    );
   }
 
   function renderMeta(poem) {
@@ -232,6 +302,7 @@
           '</div>' +
         '</div>' +
         '<div class="poem-body" id="poemBody">' + renderSentences(poem) + '</div>' +
+        renderSummary(poem) +
         '<div class="hint-bar">' +
           '<span class="tiny muted">点击任意句子可以隐藏 / 显示，方便自己先背一遍。</span>' +
           '<span class="tiny muted" id="studyProgress">' +

@@ -32,7 +32,7 @@ function caution(message) {
 
 /* ---------------- 1. 原始数据层字段检查 ---------------- */
 
-const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'source', 'highlights', 'tags', 'notes', 'variants'];
+const ALLOWED_FIELDS = ['id', 'title', 'author', 'dynasty', 'stage', 'grade', 'grades', 'genre', 'sourceType', 'required', 'recommended', 'text', 'translation', 'summary', 'examFocus', 'source', 'highlights', 'tags', 'notes', 'variants'];
 const TEXT_FIELDS = ['title', 'text', 'author', 'dynasty', 'stage', 'grade', 'genre', 'sourceType', 'source'];
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const norm = (text) => String(text == null ? '' : text).replace(/\s+/g, '');
@@ -124,6 +124,50 @@ for (const { file, stageName, index, poem } of rawEntries) {
       if (/[<>]/.test(line)) fail(`${where} translation[${i}] 含 HTML 尖括号`);
       if (/[A-Za-z]/.test(line)) caution(`${where} translation[${i}] 含拉丁字母：${line}`);
       if (line === sentences[i]) fail(`${where} translation[${i}] 与原文完全相同`);
+    });
+  }
+
+  /* 中心思想 / 主旨：文章级信息，必须存在且足够简短；
+     正文里绝不能出现 ★ / ☆ —— 星标只存在于 examFocus 元数据里。 */
+  const summary = String(poem.summary == null ? '' : poem.summary).trim();
+  if (!summary) fail(`${where} 缺少 summary（中心思想 / 主旨）`);
+  if (/[\r\n]/.test(summary)) fail(`${where} summary 含换行`);
+  if (/[★☆]/.test(summary)) fail(`${where} summary 含星标符号`);
+  if (summary.length > 120) fail(`${where} summary 过长（${summary.length} 字，应 ≤ 120 字）`);
+  if (/[<>]/.test(summary)) fail(`${where} summary 含 HTML 尖括号`);
+  if (/[。！？]$/.test(summary) === false && summary) caution(`${where} summary 未以句末标点结尾`);
+
+  /* 考试重点：只存句子下标，下标必须落在正文句数范围内且不重复。
+     这是“marker 与句子正确绑定”的硬约束。 */
+  if (!Array.isArray(poem.examFocus)) {
+    fail(`${where} 缺少 examFocus 数组`);
+  } else {
+    if (!poem.examFocus.length) fail(`${where} examFocus 为空（每篇至少标 1 句重点）`);
+    if (poem.examFocus.length > 12) caution(`${where} examFocus 标了 ${poem.examFocus.length} 句，可能过多`);
+    if (poem.examFocus.length > sentences.length) {
+      fail(`${where} examFocus 数量 ${poem.examFocus.length} > 正文句数 ${sentences.length}`);
+    }
+    const seenFocus = new Set();
+    const seenReason = new Set();
+    poem.examFocus.forEach((item, i) => {
+      if (!isPlainObject(item)) { fail(`${where} examFocus[${i}] 不是对象`); return; }
+      if (!Number.isInteger(item.index)) { fail(`${where} examFocus[${i}] 缺少整数 index`); return; }
+      if (item.index < 0 || item.index >= sentences.length) {
+        fail(`${where} examFocus[${i}] index=${item.index} 越界（正文共 ${sentences.length} 句）`);
+      }
+      if (seenFocus.has(item.index)) fail(`${where} examFocus 里 index=${item.index} 重复`);
+      seenFocus.add(item.index);
+      const reason = String(item.reason == null ? '' : item.reason).trim();
+      if (!reason) fail(`${where} examFocus[${i}] 缺少 reason`);
+      // 同一篇里两句话不该有完全一样的判定依据（说明有一处是复制粘贴没改）
+      if (seenReason.has(reason)) fail(`${where} examFocus[${i}] reason 与另一句完全相同：${reason}`);
+      seenReason.add(reason);
+      if (/[\r\n]/.test(reason)) fail(`${where} examFocus[${i}] reason 含换行`);
+      if (/[★☆]/.test(reason)) fail(`${where} examFocus[${i}] reason 含星标符号`);
+      // reason 只允许写在“可核查依据”上，不允许编造考试年份 / 频次
+      if (/(\d{4}\s*年|中考真题|高考真题|频率|高频度|第\s*\d+\s*次)/.test(reason)) {
+        fail(`${where} examFocus[${i}] reason 含无法核查的考试频率表述：${reason}`);
+      }
     });
   }
 }

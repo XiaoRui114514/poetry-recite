@@ -67,6 +67,12 @@
       translations: Utils.toArray(poem.translation).filter(function (item) {
         return typeof item === 'string';
       }),
+      // 考试重点标记：只存句子下标，正文（text）绝对不含 ★ 等标记符号
+      examFocus: Utils.toArray(poem.examFocus).filter(function (item) {
+        return item && typeof item === 'object' && typeof item.index === 'number' && isFinite(item.index);
+      }),
+      // 中心思想 / 主旨（文章级信息，一句话到三句话）
+      summary: String(poem.summary || '').trim(),
       source: String(poem.source || '').trim(),
       notes: String(poem.notes || '').trim(),
       highlights: Utils.toArray(poem.highlights).filter(function (item) {
@@ -216,6 +222,23 @@
     });
   }
 
+  /**
+   * 考试重点标记：返回 { 句子下标: { reason } }。
+   * 只保留落在正文句数范围内的下标（越界数据被静默忽略，页面不会报错），
+   * 页面据此决定该句的 marker 里有没有 ★，与正文文本完全解耦。
+   */
+  function examFocusMap(poem) {
+    var total = Utils.splitSentences(poem ? poem.text : '').length;
+    var map = Object.create(null);
+    Utils.toArray(poem ? poem.examFocus : []).forEach(function (item) {
+      if (!item || typeof item.index !== 'number' || !isFinite(item.index)) return;
+      var index = Math.floor(item.index);
+      if (index < 0 || index >= total) return;
+      map[index] = { reason: typeof item.reason === 'string' ? item.reason.trim() : '' };
+    });
+    return map;
+  }
+
   function highlightMap(poem) {
     var map = Object.create(null);
     Utils.toArray(poem.highlights).forEach(function (item) {
@@ -241,6 +264,7 @@
     gradeOrder: gradeOrder,
     highlightMap: highlightMap,
     translationLines: translationLines,
+    examFocusMap: examFocusMap,
     stats: function (stage) {
       var list = stage ? byStage(stage) : poems.slice();
       return {

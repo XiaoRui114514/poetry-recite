@@ -894,7 +894,10 @@ select {
 }
 
 .line-item {
-  display: block;
+  display: grid;
+  grid-template-columns: 1.25em 1fr;
+  column-gap: var(--space-2xs);
+  align-items: start;
   width: 100%;
   margin: 0 calc(var(--space-xs) * -1);
   padding: var(--space-2xs) var(--space-xs);
@@ -910,6 +913,27 @@ select {
 .line-item:hover { background: var(--color-paper-2); }
 .line-item.is-hidden .line-text { color: var(--color-ink-3); letter-spacing: 0.14em; }
 .line-item.is-active { background: var(--color-accent-wash); border-color: var(--color-accent); }
+
+/* 考试重点星标列：宽度由 grid 的固定列（1.25em）决定，元素本身不参与宽度计算，
+   所以「有 ★ / 没 ★ / 星隐藏」三种状态下原文的横向起始位置完全一致。
+   隐藏只切 visibility，不用 display:none，占位永远保留。
+   列里只放 ★ 一个字符（不换行、不溢出），将来要加别的标记也走同一列。 */
+.line-marker {
+  display: block;
+  min-width: 0;
+  padding-top: 0.1em;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 0.8em;
+  font-weight: 400;
+  line-height: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+}
+.line-marker.is-off { visibility: hidden; }
+
+.line-content { min-width: 0; }
 
 /* 逐句翻译：附属于该句原文，字号与颜色都明显弱于正文。
    关键点：隐藏只切 visibility（.is-off），DOM 高度与行盒完全不变，
@@ -928,6 +952,28 @@ select {
 }
 .line-zh.is-off { visibility: hidden; }
 .line-item.is-active .line-zh { color: var(--color-ink-2); }
+
+/* 中心思想 / 主旨：文章级信息，放在整篇诗文之后，克制的一小块辅助文本 */
+.poem-summary {
+  max-width: 26em;
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-rule);
+}
+.poem-summary-label {
+  display: block;
+  margin-bottom: var(--space-2xs);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+.poem-summary-text {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-base);
+  line-height: 1.85;
+}
 
 .hint-bar {
   display: flex;

@@ -117,3 +117,65 @@ test('@responsive 逐句翻译在窄屏不溢出、隐藏时不改变布局', as
   expect(await height(), '恢复显示后 poemBody 高度必须回到原值').toBeCloseTo(before, 0);
   await expectNoHorizontalOverflow(page, '恢复翻译后的全文学习页');
 });
+
+test('@responsive 重点星标列在各尺寸下固定占位，原文不被挤压也不溢出', async ({ page }) => {
+  const viewport = page.viewportSize();
+  const label = `${viewport.width}×${viewport.height}`;
+  await fresh(page);
+  await page.locator('[data-stage="初中"]').click();
+  await page.click('[data-action="select-none"]');
+  await page.locator('.poem-card', { hasText: '岳阳楼记' }).first().click();
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+  await expectNoHorizontalOverflow(page, `${label} 全文学习页`);
+
+  const metrics = () => page.evaluate(() => {
+    const markers = [...document.querySelectorAll('#poemBody .line-marker')];
+    const rows = [...document.querySelectorAll('#poemBody .line-item')];
+    return {
+      markerCount: markers.length,
+      minWidth: Math.min(...markers.map((m) => m.getBoundingClientRect().width)),
+      widths: new Set(markers.map((m) => Math.round(m.getBoundingClientRect().width * 100) / 100)).size,
+      lefts: new Set(rows.map((r) => Math.round(r.querySelector('.line-text').getBoundingClientRect().left * 100) / 100)).size,
+      left: rows[0].querySelector('.line-text').getBoundingClientRect().left,
+      stars: markers.filter((m) => m.textContent === '★' && getComputedStyle(m).visibility !== 'hidden').length,
+      body: Math.round(document.getElementById('poemBody').getBoundingClientRect().height),
+      // marker 是否和原文第一行重叠（星标压在字上）
+      overlap: rows.filter((r) => {
+        const m = r.querySelector('.line-marker').getBoundingClientRect();
+        const t = r.querySelector('.line-text').getBoundingClientRect();
+        return m.width > 0 && m.right > t.left + 0.5;
+      }).length,
+    };
+  });
+
+  const base = await metrics();
+  expect(base.markerCount, '每句都要有 marker').toBe(22);
+  expect(base.minWidth, `${label} marker 必须有可见占位宽度`).toBeGreaterThan(10);
+  // marker 列宽不能过大，否则手机端诗句被严重挤压
+  expect(base.minWidth, `${label} marker 列宽不应超过 30px（当前 ${base.minWidth}）`).toBeLessThanOrEqual(30);
+  expect(base.widths, `${label} 所有 marker 列宽必须完全一致`).toBe(1);
+  expect(base.lefts, `${label} 所有原文左边缘必须完全一致`).toBe(1);
+  expect(base.overlap, `${label} 星标不能与原文文字重叠`).toBe(0);
+  await expectNoHorizontalOverflow(page, `${label} 有星标时的全文学习页`);
+
+  // 隐藏 / 显示后：marker 列宽与原文左边缘都不许变
+  await page.click('[data-action="hide-all"]');
+  const hidden = await metrics();
+  expect(hidden.minWidth, `${label} 隐藏后 marker 列宽不应变化`).toBeCloseTo(base.minWidth, 1);
+  expect(hidden.left, `${label} 隐藏后原文左边缘不应移动`).toBeCloseTo(base.left, 1);
+  expect(hidden.stars, `${label} 隐藏后不应有可见 ★`).toBe(0);
+  expect(hidden.markerCount, `${label} 隐藏后 marker 占位不应消失`).toBe(22);
+  await expectNoHorizontalOverflow(page, `${label} 隐藏后的全文学习页`);
+
+  await page.click('[data-action="reveal-all"]');
+  const shown = await metrics();
+  expect(shown.minWidth).toBeCloseTo(base.minWidth, 1);
+  expect(shown.left).toBeCloseTo(base.left, 1);
+  expect(shown.body, `${label} 恢复后 poemBody 高度必须回到原值`).toBe(base.body);
+  await expectNoHorizontalOverflow(page, `${label} 恢复后的全文学习页`);
+
+  // 中心思想区域同样不能溢出
+  await expect(page.locator('.poem-summary')).toHaveCount(1);
+  await expectNoHorizontalOverflow(page, `${label} 中心思想区域`);
+});

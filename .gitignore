@@ -6,6 +6,9 @@ playwright/.cache/
 *.log
 .hallmark/
 
+# 由 meta/poems.json 拆分出来的分批文件（可随时用 tools/meta/export.cjs --split 重新生成）
+meta/batches/
+
 # 系统文件
 .DS_Store
 Thumbs.db
