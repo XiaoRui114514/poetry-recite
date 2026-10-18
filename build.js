@@ -35,6 +35,9 @@ function buildBrandModule() {
 
 let html = read('index.html');
 
+// 0) PWA manifest 只属于模块化版本；单文件版没有 sw.js / manifest 文件，去掉引用避免 404
+html = html.replace(/[ \t]*<link rel="manifest"[^>]*>\r?\n?/g, '');
+
 // 1) 内联 CSS
 const css = read('assets/styles.css');
 html = html.replace(/[ \t]*<link rel="stylesheet" href="assets\/styles\.css">\r?\n?/, () => {

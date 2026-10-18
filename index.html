@@ -7,6 +7,15 @@
   <meta name="description" content="纯前端、可离线使用的初高中古诗文背诵辅助系统：课标篇目选择、全文学习、多种默写自测、本地学习进度与错题本，支持深色模式。">
   <meta name="theme-color" content="#f7f3eb">
   <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="古诗文背诵">
+  <meta property="og:title" content="上海初高古诗文背诵">
+  <meta property="og:description" content="课标与统编教材古诗文背诵：全文学习、逐句翻译、考试重点、默写自测、错题本与复习计划，纯本地离线可用。">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="zh_CN">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='6' fill='%23f7f3eb'/%3E%3Crect x='8' y='8' width='48' height='48' rx='4' fill='%23a33a2a'/%3E%3Ctext x='32' y='45' font-family='SimSun,serif' font-size='36' text-anchor='middle' fill='%23f7f3eb'%3E%E8%AF%97%3C/text%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
   <script>
     /* 主题预置：避免刷新时闪白 / 闪黑（与 app.js 使用同一个 key） */
     (function () {
@@ -50,7 +59,7 @@
           <p>本系统需要浏览器启用 JavaScript 才能运行。</p>
         </div>
       </noscript>
-      <div id="viewRoot" class="view-root" aria-live="polite"></div>
+      <div id="viewRoot" class="view-root"></div>
     </main>
 
     <!-- 页脚由 js/brand.js 注入（署名 / 授权 / 版本），被删除也会自动重建 -->
@@ -68,6 +77,8 @@
   <script src="js/storage.js"></script>
   <script src="js/study.js"></script>
   <script src="js/quiz.js"></script>
+  <script src="js/worksheet.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/pwa.js"></script>
 </body>
 </html>

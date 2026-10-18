@@ -293,6 +293,40 @@
     return todayKey(d) + ' ' + hh + ':' + mm;
   }
 
+  function parseDayKey(value) {
+    var src = String(value == null ? '' : value).trim();
+    if (!isValidDayKey(src)) return null;
+    var m = DAY_KEY_RE.exec(src);
+    return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+  }
+
+  /** 在日键上加减天数（按本地日历，跨月 / 跨年 / 闰年都正确） */
+  function addDaysKey(dayKey, days) {
+    var base = parseDayKey(dayKey);
+    var offset = Number(days);
+    if (!isFinite(offset)) offset = 0;
+    var d = base ? new Date(base.year, base.month - 1, base.day) : new Date();
+    d.setDate(d.getDate() + Math.round(offset));
+    return todayKey(d);
+  }
+
+  /** 两个日键相差多少天（b - a）；任一非法返回 NaN */
+  function daysBetweenKeys(a, b) {
+    var left = parseDayKey(a);
+    var right = parseDayKey(b);
+    if (!left || !right) return NaN;
+    var start = new Date(left.year, left.month - 1, left.day).getTime();
+    var end = new Date(right.year, right.month - 1, right.day).getTime();
+    return Math.round((end - start) / 86400000);
+  }
+
+  /** 到期日是否已到（due <= today）；due 为空 / 非法表示没有安排 */
+  function isDueDay(due, today) {
+    var d = String(due == null ? '' : due).trim();
+    if (!isValidDayKey(d)) return false;
+    return d <= (today || todayKey());
+  }
+
   function debounce(fn, wait) {
     var timer = null;
     return function () {
@@ -326,6 +360,9 @@
     isValidDayKey: isValidDayKey,
     sortDayKeys: sortDayKeys,
     todayKey: todayKey,
+    addDaysKey: addDaysKey,
+    daysBetweenKeys: daysBetweenKeys,
+    isDueDay: isDueDay,
     formatDateTime: formatDateTime,
     debounce: debounce,
   };

@@ -179,3 +179,36 @@ test('@responsive 重点星标列在各尺寸下固定占位，原文不被挤�
   await expect(page.locator('.poem-summary')).toHaveCount(1);
   await expectNoHorizontalOverflow(page, `${label} 中心思想区域`);
 });
+
+test('@responsive 新工具条、打印页与进度热力图在窄屏不溢出', async ({ page }) => {
+  const viewport = page.viewportSize();
+  const label = `${viewport.width}×${viewport.height}`;
+  await fresh(page);
+  await page.locator('[data-stage="初中"]').click();
+  await page.click('[data-action="select-none"]');
+  await page.locator('.poem-card', { hasText: '观沧海' }).first().click();
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="study"]');
+
+  await expectNoHorizontalOverflow(page, `${label} 学习页工具条`);
+  await page.click('[data-action="toggle-recite"]');
+  await expect(page.locator('#poemBody .line-item:visible')).toHaveCount(1);
+  await expectNoHorizontalOverflow(page, `${label} 逐句背`);
+  await page.click('[data-action="toggle-recite"]');
+  await page.click('[data-action="toggle-focus"]');
+  await expectNoHorizontalOverflow(page, `${label} 只看重点`);
+  await page.click('[data-action="toggle-focus"]');
+  await page.click('[data-action="toggle-translation"]');
+  await expectNoHorizontalOverflow(page, `${label} 关闭译文`);
+  await page.click('[data-action="toggle-translation"]');
+
+  await page.click('#headerBack');
+  await page.click('[data-action="print"]');
+  await expect(page.locator('.print-sheet')).toBeVisible();
+  await expectNoHorizontalOverflow(page, `${label} 打印默写纸`);
+
+  await page.click('#headerBack');
+  await page.click('[data-action="progress"]');
+  await expect(page.locator('.heatmap')).toBeVisible();
+  await expectNoHorizontalOverflow(page, `${label} 进度页热力图`);
+});

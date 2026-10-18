@@ -53,6 +53,7 @@ function sourceCounts() {
     juniorSource: (sources) => countQuery(junior, { sourceType: sources }),
     juniorQuery: (query) => countQuery(junior, query),
     juniorSixShanghai: junior.filter((poem) => poem.grade === '六年级' && poem.sourceType === '上海地区').length,
+    libaiJuniorTitles: junior.filter((poem) => poem.author === '李白').map((poem) => poem.title),
     firstJuniorId: junior[0].id,
     unselectedJuniorId: junior.find((poem) => poem.id !== 'guan-ju' && poem.id !== 'jian-jia').id,
     guanCangHaiTranslation: guanCangHaiTranslation,
@@ -148,7 +149,7 @@ test('初中：搜索、筛选、多选、全选与取消全选', async ({ page 
 
   // 搜索作者
   await page.fill('#poemSearch', '李白');
-  const libaiWorks = ['行路难（其一）', '闻王昌龄左迁龙标遥有此寄', '峨眉山月歌', '春夜洛城闻笛', '送友人'];
+  const libaiWorks = COUNTS.libaiJuniorTitles;
   await expect(page.locator('.poem-card')).toHaveCount(libaiWorks.length);
   const titles = await page.locator('.poem-card .poem-title').allInnerTexts();
   expect(titles.every((t) => libaiWorks.includes(t))).toBe(true);
@@ -192,11 +193,11 @@ test('进入学习后可返回，且选择与进度在刷新后保留', async ({
   await page.click('[data-action="select-required"]');
   await page.click('[data-action="start"]');
 
-  await expect(page.locator('.section-title').first()).toContainText('高中背诵工作台');
+  await expect(page.locator('.section-title', { hasText: '高中背诵工作台' }).first()).toContainText('高中背诵工作台');
   await expect(page.locator('.stat-box').first()).toContainText(`0 / ${COUNTS.seniorRequired}`);
 
   await page.reload();
-  await expect(page.locator('.section-title').first()).toContainText('高中背诵工作台');
+  await expect(page.locator('.section-title', { hasText: '高中背诵工作台' }).first()).toContainText('高中背诵工作台');
   await expect(page.locator('.header-meta')).toContainText(`已选 ${COUNTS.seniorRequired} 篇`);
 
   // 返回选择页
@@ -595,7 +596,7 @@ test('单文件版（dist）可直接用 file:// 打开', async ({ page }) => {
   await expect(page.locator('.poem-card')).not.toHaveCount(0);
   await page.locator('.poem-card').first().click();
   await page.click('[data-action="start"]');
-  await expect(page.locator('.section-title').first()).toContainText('初中背诵工作台');
+  await expect(page.locator('.section-title', { hasText: '初中背诵工作台' }).first()).toContainText('初中背诵工作台');
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -630,6 +631,7 @@ test('所有页面按钮都有明确功能，没有“死按钮”', async ({ pa
     '[data-mode]',
     '[data-count]',
     '[data-scope]',
+    '[data-question-filter]',
   ];
 
   async function collectDeadButtons(label) {
@@ -953,7 +955,7 @@ test('切换页面后回到顶部，不会停在上一页的滚动位置', async
   await page.evaluate(() => window.scrollTo(0, 1500));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1500);
   await page.click('#headerBack');
-  await expect(page.locator('.section-title').first()).toContainText('高中背诵工作台');
+  await expect(page.locator('.section-title', { hasText: '高中背诵工作台' }).first()).toContainText('高中背诵工作台');
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
@@ -1178,15 +1180,15 @@ test('主题：localStorage 记录损坏时跟随系统，theme-color 同步更�
   });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0b1020');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#130f0b');
   await expect(page.locator('#themeToggle')).toHaveText('☀️');
 
   await page.click('#themeToggle');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f4f7ff');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f3eb');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f4f7ff');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f3eb');
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -1214,18 +1216,44 @@ test('错题本完整生命周期：连续答错累加、答对后移除、从�
   await page.click('[data-action="progress"]');
   await expect(page.locator('.progress-item', { hasText: '错 ' })).toContainText('错 2 次');
 
-  // 再练一次 → 答对 → 整条错题记录移除（产品设计：答对即认为已经掌握）
-  await page.click('[data-practice]');
-  await page.locator('.quiz-card').first().locator('[data-action="mark-right"]').click();
-  await page.click('#headerBack');
-  await page.click('[data-action="progress"]');
+  // 移除整篇错题（题目级记录仍按篇目汇总展示）
+  await page.click('[data-remove-wrong]');
   await expect(page.locator('.progress-item', { hasText: '错 ' })).toHaveCount(0);
-  await expect(page.locator('.section-title', { hasText: '错题本（0）' })).toHaveCount(1);
+  await expect(page.locator('.section-title', { hasText: '错题本（0 篇）' })).toHaveCount(1);
 
   // 直接通过链接进入错误篇目，同样只出该篇
   await page.goto('/index.html#/quiz?poem=guan-ju');
   const focusState = await page.evaluate(() => window.PoetryQuiz.currentState());
   expect(focusState.focusPoemId).toBe('guan-ju');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('题目级错题：从“只练这句”进入，答对后只移除该句', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海', '关雎']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="quiz"]');
+  await page.locator('.quiz-card').first().locator('[data-action="mark-wrong"]').click();
+  await page.click('#headerBack');
+  await page.click('[data-action="progress"]');
+
+  const wrongItem = await page.evaluate(() => {
+    const item = window.PoetryStorage.getState().wrongItems[0];
+    return { key: item.key, poemId: item.poemId };
+  });
+  expect(wrongItem.key.length).toBeGreaterThan(0);
+  await page.click('.wrong-details summary');
+  await page.click('[data-practice-item]');
+  await expect(page.locator('.quiz-card')).toHaveCount(1);
+  await expect(page.locator('.quiz-card').first()).toHaveAttribute('data-key', wrongItem.key);
+  await page.locator('.quiz-card').first().locator('[data-action="mark-right"]').click();
+  await page.click('#headerBack');
+  await page.click('[data-action="progress"]');
+  await expect(page.locator('.progress-item', { hasText: '错 ' })).toHaveCount(0);
+  await expect(page.locator('.section-title', { hasText: '错题本（0 篇）' })).toHaveCount(1);
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -1549,5 +1577,271 @@ test('全文学习：文言文用「中心思想」标签，长篇文言文每�
   expect(k.overflow).toBe(0);
 
   expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/* ================= v1.5 新功能 ================= */
+
+test('默写：看译文写原文，重点句 / 名句范围可切换', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="quiz"]');
+
+  for (const key of ['blank-full', 'next', 'prev', 'keyword', 'mixed', 'full']) {
+    await page.uncheck(`[data-mode="${key}"]`);
+  }
+  await page.check('[data-mode="translation"]');
+  await page.click('[data-action="generate"]');
+  const cards = page.locator('.quiz-card');
+  expect(await cards.count()).toBeGreaterThan(0);
+  const labels = await page.locator('.quiz-card .mode-badge').allInnerTexts();
+  expect(labels.every((text) => text === '看译文写原文')).toBe(true);
+  const prompt = (await cards.first().locator('.translation-prompt').innerText()).trim();
+  expect(COUNTS.guanCangHaiTranslation.map((line) => line.trim())).toContain(prompt);
+
+  await page.click('[data-question-filter="exam"]');
+  await page.click('[data-action="generate"]');
+  await expect(cards).toHaveCount(COUNTS.guanCangHaiFocus.length);
+  expect(await page.locator('#quizNotice').innerText()).toContain('最多可生成');
+
+  await page.click('[data-question-filter="name"]');
+  await page.click('[data-action="generate"]');
+  expect(await cards.count()).toBeGreaterThan(0);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('全文学习：逐句背、只看重点、译文、字号与专注模式', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openStudy(page, '初中', '观沧海');
+  const visibleLines = page.locator('#poemBody .line-item:visible');
+  await expect(visibleLines).toHaveCount(6);
+
+  await page.click('[data-action="toggle-recite"]');
+  await expect(visibleLines).toHaveCount(1);
+  await expect(page.locator('#poemBody .line-item.is-active')).toHaveCount(1);
+  await page.click('[data-action="next-line"]');
+  await expect(page.locator('#poemBody .line-item.is-active')).toContainText('水何澹澹');
+  await expect(visibleLines).toHaveCount(1);
+  await page.click('[data-action="toggle-recite"]');
+  await expect(visibleLines).toHaveCount(6);
+
+  await page.click('[data-action="toggle-focus"]');
+  await expect(visibleLines).toHaveCount(COUNTS.guanCangHaiFocus.length);
+  await page.click('[data-action="toggle-focus"]');
+  await expect(visibleLines).toHaveCount(6);
+
+  await page.click('[data-action="toggle-translation"]');
+  await expect(page.locator('#poemBody .line-zh:visible')).toHaveCount(0);
+  await page.click('[data-action="toggle-translation"]');
+  await expect(page.locator('#poemBody .line-zh:visible')).toHaveCount(6);
+
+  await page.click('[data-action="font-up"]');
+  await expect(page.locator('body')).toHaveClass(/font-lg/);
+  await page.click('[data-action="font-down"]');
+  await page.click('[data-action="font-down"]');
+  await expect(page.locator('body')).toHaveClass(/font-sm/);
+
+  await page.click('[data-action="toggle-focusmode"]');
+  await expect(page.locator('body')).toHaveClass(/focus-reading/);
+  await expect(page.locator('.app-header')).toBeHidden();
+  await page.click('[data-action="toggle-focusmode"]');
+  await expect(page.locator('body')).not.toHaveClass(/focus-reading/);
+
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#poemBody .line-item.is-active')).toHaveCount(1);
+  await page.keyboard.press(' ');
+  await expect(page.locator('#poemBody .line-item.is-active')).toHaveClass(/is-hidden/);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('打印默写纸：题目、答案页、重点句与题型切换', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="print"]');
+
+  await expect(page.locator('.print-sheet')).toBeVisible();
+  const sentenceCount = await page.evaluate(() => window.PoetryUtils.splitSentences(window.PoetryDatabase.byId('guan-cang-hai').text).length);
+  await expect(page.locator('.ws-question')).toHaveCount(sentenceCount);
+  await expect(page.locator('.ws-answers')).toHaveCount(1);
+
+  await page.uncheck('#printAnswers');
+  await expect(page.locator('.ws-answers')).toHaveCount(0);
+
+  await page.selectOption('#printMode', 'translation');
+  await expect(page.locator('.ws-q-prompt .translation-prompt').first()).toBeVisible();
+  await page.check('#printFocus');
+  await expect(page.locator('.ws-question')).toHaveCount(COUNTS.guanCangHaiFocus.length);
+  const printState = await page.evaluate(() => window.PoetryWorksheet.currentState());
+  expect(printState.focusOnly).toBe(true);
+  expect(printState.mode).toBe('translation');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('今日复习：到期篇目进入复习范围；分享链接恢复篇目', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海', '关雎']);
+  await page.click('[data-action="start"]');
+
+  await page.evaluate(() => {
+    const today = window.PoetryUtils.todayKey();
+    window.PoetryStorage.patch({
+      review: { 'guan-ju': { level: 0, due: today, lastTime: Date.now() } },
+    });
+  });
+  await page.reload();
+  await expect(page.locator('[data-action="quiz-review"]')).toContainText('1 篇');
+  await page.click('[data-action="quiz-review"]');
+  await expect(page.locator('[data-scope="review"]')).toHaveClass(/active/);
+  const badges = await page.locator('.quiz-card .badge-primary').allInnerTexts();
+  expect(badges.length).toBeGreaterThan(0);
+  expect(badges.every((text) => text.includes('关雎'))).toBe(true);
+
+  const url = await page.evaluate(() => window.PoetryApp.buildShareUrl());
+  expect(url).toContain('#/select?list=');
+  await page.evaluate(() => localStorage.removeItem('ruishao-poetry-study-v1'));
+  await page.goto(url);
+  await expect(page.locator('.select-summary')).toContainText('已选择 2 篇');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('浏览器返回键可用，顶栏返回仍然按层级上行', async ({ page }) => {
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.goBack();
+  await expect(page.locator('.section-title').first()).toHaveText('请选择要背诵的篇目');
+  await page.goForward();
+  await expect(page.locator('.section-title', { hasText: '初中背诵工作台' })).toHaveCount(1);
+});
+
+test('篇目选择：勾选局部更新、搜索高亮、掌握度筛选与排序', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await selectPoems(page, ['观沧海', '关雎']);
+  await page.click('.selected-panel summary');
+  await page.locator('.poem-card', { hasText: '蒹葭' }).first().click();
+  await expect(page.locator('.selected-panel')).toHaveAttribute('open', '');
+  await expect(page.locator('.selected-chip')).toHaveCount(3);
+
+  await page.fill('#poemSearch', '李白');
+  await expect(page.locator('.poem-match mark').first()).toHaveText('李白');
+  await page.click('[data-action="clear-search"]');
+  await page.fill('#poemSearch', '碣石');
+  await expect(page.locator('.poem-match').first()).toContainText('正文：');
+  await expect(page.locator('.poem-match mark').first()).toHaveText('碣石');
+  await page.click('[data-action="clear-search"]');
+
+  await page.evaluate(() => {
+    window.PoetryStorage.patch({
+      quizStats: {
+        total: 4,
+        correct: 1,
+        wrong: 3,
+        byPoem: { 'guan-cang-hai': { total: 4, correct: 1, wrong: 3, lastTime: Date.now() } },
+        byMode: {},
+      },
+    });
+    window.PoetryStorage.addWrongItem({
+      key: 'guan-cang-hai|full|0|s',
+      poemId: 'guan-cang-hai',
+      mode: 'full',
+      index: 0,
+      pairIndex: null,
+    });
+  });
+  await page.reload();
+  await page.click('[data-filter="progress"][data-value="wrong"]');
+  await expect(page.locator('.poem-card')).toHaveCount(1);
+  await expect(page.locator('.poem-card .poem-title').first()).toHaveText('观沧海');
+  await page.click('[data-filter="progress"][data-value=""]');
+  await page.selectOption('#poemSort', 'mastery');
+  await expect(page.locator('.poem-card .poem-title').first()).toHaveText('观沧海');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('PWA：manifest 与 service worker 可用', async ({ page }) => {
+  await page.goto('/index.html');
+  await expect(page.locator('link[rel="manifest"]')).toHaveCount(1);
+  const response = await page.request.get('/manifest.webmanifest');
+  expect(response.ok()).toBe(true);
+  const manifest = await response.json();
+  expect(manifest.display).toBe('standalone');
+  expect(manifest.icons.length).toBe(3);
+  await expect.poll(async () => page.evaluate(async () => {
+    if (!navigator.serviceWorker) return 'no-sw';
+    const reg = await navigator.serviceWorker.getRegistration();
+    return reg ? (reg.active ? 'active' : 'registered') : 'none';
+  })).not.toBe('none');
+});
+
+test('数据管理：导出 JSON 与导入恢复', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="quiz"]');
+  await page.locator('.quiz-card').first().locator('[data-action="mark-wrong"]').click();
+  await page.click('#headerBack');
+  await page.click('[data-action="progress"]');
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.click('[data-action="export-data"]');
+  const download = await downloadPromise;
+  const filePath = await download.path();
+  const exported = JSON.parse(readFileSync(filePath, 'utf8'));
+  expect(exported.app).toBe('hison-poetry-recite');
+  expect(exported.schema).toBe(2);
+  expect(exported.state.selectedIds).toEqual(['guan-cang-hai']);
+  expect(exported.state.wrongItems.length).toBeGreaterThan(0);
+
+  page.on('dialog', (dialog) => dialog.accept());
+  const importedState = {
+    version: 2,
+    stage: '初中',
+    selectedIds: ['guan-ju'],
+    learnedIds: {},
+    recents: [],
+    quizStats: { total: 0, correct: 0, wrong: 0, byPoem: {}, byMode: {} },
+    wrongItems: [],
+    wrongBook: [],
+    review: {},
+    daily: {},
+    prefs: { quizCount: 10, modes: [], autoNext: false, hideKeywords: false, fontScale: 1, showTranslation: true, focusMode: false },
+  };
+  await page.setInputFiles('#importFile', {
+    name: 'backup.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ app: 'hison-poetry-recite', schema: 2, state: importedState })),
+  });
+  await expect(page.locator('.header-meta')).toContainText('已选 1 篇');
+  const after = await page.evaluate(() => window.PoetryStorage.getState());
+  expect(after.selectedIds).toEqual(['guan-ju']);
+  expect(after.wrongItems).toEqual([]);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('无障碍：换页后焦点在标题，viewRoot 不再整页 aria-live', async ({ page }) => {
+  await gotoFresh(page);
+  await expect(page.locator('#viewRoot')).not.toHaveAttribute('aria-live', 'polite');
+  await chooseStage(page, '初中');
+  const active = await page.evaluate(() => ({
+    tag: document.activeElement ? document.activeElement.tagName : '',
+    text: document.activeElement ? document.activeElement.textContent.trim() : '',
+  }));
+  expect(active.tag).toBe('H2');
+  expect(active.text).toContain('请选择要背诵的篇目');
 });
 

@@ -14,6 +14,7 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
@@ -35,7 +36,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const data = await readFile(filePath);
-    res.writeHead(200, { 'content-type': MIME[extname(filePath)] || 'application/octet-stream' });
+    const headers = { 'content-type': MIME[extname(filePath)] || 'application/octet-stream' };
+    // service worker 必须及时拿到新版本，不能让浏览器长期缓存
+    if (pathname.endsWith('/sw.js')) headers['cache-control'] = 'no-cache';
+    res.writeHead(200, headers);
     res.end(data);
   } catch (err) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });

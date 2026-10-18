@@ -7,8 +7,8 @@
   global.PoetryMeta = {
     appName: '上海初高古诗文背诵',
     slogan: '初高中古诗文背诵学习系统',
-  version: '1.4.0',
-    updatedAt: '2026-09',
+    version: '1.5.0',
+    updatedAt: '2026-10',
 
     // 作者品牌（页面署名、页脚、授权弹窗统一引用这里；js/brand.js 内部还带一份编码副本）
     brand: {

@@ -1,25 +1,39 @@
 /* 古诗文背诵学习系统 —— 本地数据存储
    纯静态站点没有后端账户，学习和错题数据全部保存在 localStorage。
-   这里对损坏 / 禁用 / 配额异常做了容错，保证任何情况下页面都能打开。 */
+   这里对损坏 / 禁用 / 配额异常做了容错，保证任何情况下页面都能打开。
+
+   v2 起：
+   - 错题不再只记到“篇目”，而是记到「篇目 + 句子下标 + 题型」的题目级（wrongItems），
+     wrongBook 是由 wrongItems 汇总出来的篇目级视图，兼容旧的篇目级数据；
+   - 每篇增加复习计划 review（下次复习日 + 等级），用于“今日复习”；
+   - 新增按题型统计 byMode 与阅读偏好（字号 / 译文 / 专注模式）；
+   - 支持学习数据导出 / 导入，全部仍是本机数据。 */
 (function (global) {
   'use strict';
 
   var Utils = global.PoetryUtils;
   var STORAGE_KEY = 'ruishao-poetry-study-v1';
-  var SCHEMA_VERSION = 1;
+  var SCHEMA_VERSION = 2;
   var DAILY_LIMIT = 60;
   var RECENT_LIMIT = 20;
   var WRONG_LIMIT = 200;
+  var WRONG_ITEM_LIMIT = 500;
 
   /* 合法题型白名单（与 js/quiz.js 的 MODES 保持一致，unit test 会校验两者相等）。
      非法值必须被丢弃：空数组按现有设计表示“随机组合”。 */
-  var MODE_KEYS = ['blank-full', 'next', 'prev', 'keyword', 'mixed', 'full'];
+  var MODE_KEYS = ['blank-full', 'next', 'prev', 'keyword', 'mixed', 'full', 'translation'];
+
+  /* 复习间隔（天）：答对升一级，答错回到第 1 天。 */
+  var SRS_STEPS = [1, 2, 4, 7, 15, 30];
+  var SRS_MAX_LEVEL = SRS_STEPS.length;
 
   /* 页面 UI 只提供这四档题量；localStorage 里的其它数值一律吸附到最近的档位，
      避免出现“没有任何 chip 处于选中态”的不可见状态。 */
   var QUIZ_COUNT_OPTIONS = [5, 10, 20, 30];
   var QUIZ_COUNT_MIN = 1;
   var QUIZ_COUNT_MAX = 60;
+
+  var FONT_SCALES = [0, 1, 2];
 
   var memoryFallback = null; // localStorage 不可用时退化为内存存储
 
@@ -35,14 +49,20 @@
         correct: 0,
         wrong: 0,
         byPoem: {},           // { id: { total, correct, wrong, lastTime } }
+        byMode: {},           // { mode: { total, correct, wrong } }
       },
-      wrongBook: [],          // 错题本 [{ id, time, count, mode }]
+      wrongItems: [],         // 题目级错题 [{ key, poemId, mode, index, pairIndex, time, count }]
+      wrongBook: [],          // 篇目级汇总（由 wrongItems 派生，保留给旧 UI / 旧数据）
+      review: {},             // { id: { level, due, lastTime } }
       daily: {},              // { '2026-09-12': { quiz, correct } }
       prefs: {
         quizCount: 10,
         modes: [],            // 空数组表示“随机组合”
         autoNext: false,
         hideKeywords: false,
+        fontScale: 1,         // 0 小 / 1 中 / 2 大
+        showTranslation: true,
+        focusMode: false,
       },
     };
   }
@@ -86,6 +106,10 @@
     return Math.floor(n);
   }
 
+  function normalizeMode(value) {
+    return typeof value === 'string' && MODE_KEYS.indexOf(value) !== -1 ? value : '';
+  }
+
   /**
    * 统计项业务不变量：correct + wrong === total（两者都是非负整数）。
    * 数据损坏时不猜 total，而是以“对 / 错”两个细粒度计数为准重建 total，
@@ -115,8 +139,89 @@
     return best;
   }
 
+  function normalizeFontScale(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return 1;
+    n = Math.round(n);
+    if (FONT_SCALES.indexOf(n) === -1) {
+      return n <= 0 ? 0 : n >= 2 ? 2 : 1;
+    }
+    return n;
+  }
+
   function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  /** 把题目级错题统一成安全结构；没有 poemId 或 key 的记录直接丢弃 */
+  function normalizeWrongItem(raw) {
+    if (!isPlainObject(raw)) return null;
+    var poemId = typeof raw.poemId === 'string' && raw.poemId
+      ? raw.poemId
+      : (typeof raw.id === 'string' ? raw.id : '');
+    var key = typeof raw.key === 'string' ? raw.key.trim() : '';
+    if (!poemId || !key) return null;
+    var index = Number.isInteger(raw.index) && raw.index >= 0 ? raw.index : null;
+    var pairIndex = Number.isInteger(raw.pairIndex) && raw.pairIndex >= 0 ? raw.pairIndex : null;
+    return {
+      key: key,
+      poemId: poemId,
+      mode: normalizeMode(raw.mode),
+      index: index,
+      pairIndex: pairIndex,
+      time: toNumber(raw.time) || Date.now(),
+      count: toCount(raw.count) || 1,
+    };
+  }
+
+  /** 旧版 wrongBook（篇目级）迁移成一条 key=legacy|id 的题目级记录，保留历史不丢 */
+  function legacyWrongItems(rawBook) {
+    var out = [];
+    var seen = Object.create(null);
+    Utils.toArray(rawBook).forEach(function (item) {
+      if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id) return;
+      var key = 'legacy|' + item.id;
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push({
+        key: key,
+        poemId: item.id,
+        mode: normalizeMode(item.mode),
+        index: null,
+        pairIndex: null,
+        time: toNumber(item.time) || Date.now(),
+        count: toCount(item.count) || 1,
+      });
+    });
+    return out;
+  }
+
+  /** wrongItems -> 篇目级汇总，保证 UI 只读 wrongBook 也能工作 */
+  function syncWrongBook(target) {
+    var data = target || state;
+    var map = Object.create(null);
+    Utils.toArray(data.wrongItems).forEach(function (item) {
+      var row = map[item.poemId];
+      if (!row) {
+        row = { id: item.poemId, time: 0, count: 0, mode: '', items: 0 };
+        map[item.poemId] = row;
+      }
+      row.count += item.count;
+      row.items += 1;
+      if (item.time >= row.time) {
+        row.time = item.time;
+        if (item.mode) row.mode = item.mode;
+      }
+    });
+    data.wrongBook = Object.keys(map)
+      .map(function (id) {
+        return map[id];
+      })
+      .sort(function (a, b) {
+        return b.time - a.time;
+      })
+      .slice(0, WRONG_LIMIT);
+    return data.wrongBook;
   }
 
   /** 把任意（可能损坏的）数据整理成合法状态 */
@@ -173,32 +278,49 @@
           });
         });
       }
+      if (isPlainObject(stats.byMode)) {
+        Object.keys(stats.byMode).forEach(function (mode) {
+          var item = stats.byMode[mode];
+          var safeMode = normalizeMode(mode);
+          if (!safeMode || !isPlainObject(item)) return;
+          base.quizStats.byMode[safeMode] = normalizeStats({
+            total: toCount(item.total),
+            correct: toCount(item.correct),
+            wrong: toCount(item.wrong),
+          });
+        });
+      }
     }
 
-    if (Array.isArray(raw.wrongBook)) {
-      var wrongList = raw.wrongBook
-        .filter(function (item) {
-          return item && typeof item === 'object' && typeof item.id === 'string';
-        })
-        .map(function (item) {
-          return {
-            id: item.id,
-            time: toNumber(item.time),
-            count: toCount(item.count) || 1,
-            mode: typeof item.mode === 'string' && MODE_KEYS.indexOf(item.mode) !== -1 ? item.mode : '',
-          };
-        });
-      var wrongSeen = Object.create(null);
-      base.wrongBook = wrongList
-        .sort(function (a, b) {
-          return b.time - a.time;
-        })
-        .filter(function (item) {
-          if (!item.id || wrongSeen[item.id]) return false; // 同一篇目只保留一条记录
-          wrongSeen[item.id] = true;
-          return true;
-        })
-        .slice(0, WRONG_LIMIT);
+    /* 题目级错题：优先读 wrongItems；没有时把旧 wrongBook 迁移过来。
+       同一 key 只保留第一条，按最近时间倒序。 */
+    var rawItems = Array.isArray(raw.wrongItems) ? raw.wrongItems : null;
+    var items = rawItems ? rawItems.map(normalizeWrongItem).filter(Boolean) : legacyWrongItems(raw.wrongBook);
+    var itemSeen = Object.create(null);
+    base.wrongItems = items
+      .sort(function (a, b) {
+        return b.time - a.time;
+      })
+      .filter(function (item) {
+        if (itemSeen[item.key]) return false;
+        itemSeen[item.key] = true;
+        return true;
+      })
+      .slice(0, WRONG_ITEM_LIMIT);
+    syncWrongBook(base);
+
+    if (isPlainObject(raw.review)) {
+      Object.keys(raw.review).forEach(function (id) {
+        var item = raw.review[id];
+        if (!id || !isPlainObject(item)) return;
+        var level = Number.isInteger(item.level) ? Utils.clamp(item.level, 0, SRS_MAX_LEVEL) : 0;
+        var due = Utils.isValidDayKey(item.due) ? String(item.due).trim() : '';
+        base.review[id] = {
+          level: level,
+          due: due,
+          lastTime: toNumber(item.lastTime),
+        };
+      });
     }
 
     if (isPlainObject(raw.daily)) {
@@ -220,6 +342,9 @@
       );
       base.prefs.autoNext = !!raw.prefs.autoNext;
       base.prefs.hideKeywords = !!raw.prefs.hideKeywords;
+      base.prefs.fontScale = normalizeFontScale(raw.prefs.fontScale);
+      base.prefs.showTranslation = raw.prefs.showTranslation !== false;
+      base.prefs.focusMode = !!raw.prefs.focusMode;
     }
 
     return base;
@@ -267,14 +392,51 @@
           if (item.total > 0 && item.correct / item.total > 1) issues.push('byPoem[' + id + '] 正确率超过 100%');
         });
       }
+      if (!isPlainObject(stats.byMode)) issues.push('quizStats.byMode 不是对象');
+      else {
+        Object.keys(stats.byMode).forEach(function (mode) {
+          var item = stats.byMode[mode];
+          if (MODE_KEYS.indexOf(mode) === -1) issues.push('byMode 含非法题型: ' + mode);
+          if (!isPlainObject(item)) { issues.push('byMode[' + mode + '] 不是对象'); return; }
+          if (item.correct + item.wrong !== item.total) issues.push('byMode[' + mode + '] 不满足 correct + wrong === total');
+        });
+      }
       if (stats.total > 0 && stats.correct / stats.total > 1) issues.push('整体正确率超过 100%');
+    }
+    if (!Array.isArray(data.wrongItems)) issues.push('wrongItems 不是数组');
+    else {
+      var keys = Object.create(null);
+      data.wrongItems.forEach(function (item, i) {
+        if (!isPlainObject(item)) { issues.push('wrongItems[' + i + '] 不是对象'); return; }
+        if (typeof item.key !== 'string' || !item.key) issues.push('wrongItems[' + i + '].key 非法');
+        else if (keys[item.key]) issues.push('wrongItems key 重复: ' + item.key);
+        else keys[item.key] = true;
+        if (typeof item.poemId !== 'string' || !item.poemId) issues.push('wrongItems[' + i + '].poemId 非法');
+        if (item.mode && MODE_KEYS.indexOf(item.mode) === -1) issues.push('wrongItems[' + i + '].mode 非法: ' + item.mode);
+        if (item.index !== null && (!Number.isInteger(item.index) || item.index < 0)) issues.push('wrongItems[' + i + '].index 非法');
+        if (item.pairIndex !== null && (!Number.isInteger(item.pairIndex) || item.pairIndex < 0)) issues.push('wrongItems[' + i + '].pairIndex 非法');
+        if (!Number.isInteger(item.count) || item.count < 1) issues.push('wrongItems[' + i + '].count 非法');
+      });
     }
     if (!Array.isArray(data.wrongBook)) issues.push('wrongBook 不是数组');
     else {
+      var expected = Object.create(null);
+      Utils.toArray(data.wrongItems).forEach(function (item) {
+        expected[item.poemId] = (expected[item.poemId] || 0) + item.count;
+      });
       data.wrongBook.forEach(function (item) {
-        if (!item || typeof item.id !== 'string' || !item.id) issues.push('wrongBook 含非法 id');
-        if (!Number.isInteger(item && item.count) || item.count < 1) issues.push('wrongBook.count 非法');
-        if (item && item.mode && MODE_KEYS.indexOf(item.mode) === -1) issues.push('wrongBook.mode 非法: ' + item.mode);
+        if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id) { issues.push('wrongBook 含非法 id'); return; }
+        if (!Number.isInteger(item.count) || item.count < 1) issues.push('wrongBook.count 非法');
+        if (expected[item.id] !== item.count) issues.push('wrongBook[' + item.id + '] 与 wrongItems 汇总不一致');
+      });
+    }
+    if (!isPlainObject(data.review)) issues.push('review 不是对象');
+    else {
+      Object.keys(data.review).forEach(function (id) {
+        var item = data.review[id];
+        if (!isPlainObject(item)) { issues.push('review[' + id + '] 不是对象'); return; }
+        if (!Number.isInteger(item.level) || item.level < 0 || item.level > SRS_MAX_LEVEL) issues.push('review[' + id + '].level 非法');
+        if (item.due !== '' && !Utils.isValidDayKey(item.due)) issues.push('review[' + id + '].due 非法: ' + item.due);
       });
     }
     if (!isPlainObject(data.daily)) issues.push('daily 不是对象');
@@ -292,6 +454,9 @@
       if (QUIZ_COUNT_OPTIONS.indexOf(data.prefs.quizCount) === -1) issues.push('prefs.quizCount 非法: ' + data.prefs.quizCount);
       if (!Array.isArray(data.prefs.modes)) issues.push('prefs.modes 不是数组');
       else if (data.prefs.modes.some(function (key) { return MODE_KEYS.indexOf(key) === -1; })) issues.push('prefs.modes 含非法题型');
+      if (FONT_SCALES.indexOf(data.prefs.fontScale) === -1) issues.push('prefs.fontScale 非法: ' + data.prefs.fontScale);
+      if (typeof data.prefs.showTranslation !== 'boolean') issues.push('prefs.showTranslation 非法');
+      if (typeof data.prefs.focusMode !== 'boolean') issues.push('prefs.focusMode 非法');
     }
     return issues;
   }
@@ -337,11 +502,18 @@
         removed += 1;
       }
     });
-    data.wrongBook = Utils.toArray(data.wrongBook).filter(function (item) {
-      if (item && allowed[item.id]) return true;
+    data.wrongItems = Utils.toArray(data.wrongItems).filter(function (item) {
+      if (item && allowed[item.poemId]) return true;
       removed += 1;
       return false;
     });
+    Object.keys(data.review || {}).forEach(function (id) {
+      if (!allowed[id]) {
+        delete data.review[id];
+        removed += 1;
+      }
+    });
+    syncWrongBook(data);
     return removed;
   }
 
@@ -372,6 +544,7 @@
 
   function save() {
     state.version = SCHEMA_VERSION;
+    syncWrongBook(state);
     return setRaw(JSON.stringify(state));
   }
 
@@ -383,8 +556,27 @@
     }
     // 合并后重新走一遍 schema / 业务校验，避免非法数据直接落盘
     state = sanitize(state);
+    syncWrongBook(state);
     save();
     return state;
+  }
+
+  /** 只改偏好：合并 prefs，避免调用方每次都手写整份 prefs 丢字段 */
+  function updatePrefs(partial) {
+    var next = {};
+    Object.keys(state.prefs || {}).forEach(function (key) {
+      next[key] = state.prefs[key];
+    });
+    if (partial && typeof partial === 'object') {
+      Object.keys(partial).forEach(function (key) {
+        next[key] = partial[key];
+      });
+    }
+    state.prefs = next;
+    state = sanitize(state);
+    syncWrongBook(state);
+    save();
+    return state.prefs;
   }
 
   function reset() {
@@ -412,15 +604,136 @@
     state.recents = list.slice(0, RECENT_LIMIT);
   }
 
+  function scheduleReview(poemId, isCorrect) {
+    if (!poemId) return;
+    var today = Utils.todayKey();
+    var info = state.review[poemId] || { level: 0, due: '', lastTime: 0 };
+    if (isCorrect) {
+      /* 同一篇目同一天只升一级，避免一组 10 道题把复习间隔一口气推到 30 天 */
+      var lastDay = info.lastTime ? Utils.todayKey(new Date(info.lastTime)) : '';
+      if (lastDay === today) {
+        info.lastTime = Date.now();
+        state.review[poemId] = info;
+        return;
+      }
+      info.level = Utils.clamp((info.level || 0) + 1, 0, SRS_MAX_LEVEL);
+      var step = SRS_STEPS[Math.max(0, info.level - 1)];
+      info.due = Utils.addDaysKey(today, step || SRS_STEPS[0]);
+    } else {
+      info.level = 0;
+      info.due = Utils.addDaysKey(today, SRS_STEPS[0]);
+    }
+    info.lastTime = Date.now();
+    state.review[poemId] = info;
+  }
+
   function markLearned(poemId) {
     if (!poemId) return state;
     state.learnedIds[poemId] = Date.now();
+    if (!state.review[poemId]) {
+      state.review[poemId] = {
+        level: 0,
+        due: Utils.addDaysKey(Utils.todayKey(), SRS_STEPS[0]),
+        lastTime: Date.now(),
+      };
+    }
     touchRecent(poemId);
     save();
     return state;
   }
 
-  function recordQuiz(poemId, isCorrect, mode) {
+  /** 手动加入错题（没有题目 key 时写一条篇目级 legacy 记录） */
+  function addWrong(poemId, mode, silent, meta) {
+    if (!poemId) return state;
+    if (meta && typeof meta.key === 'string' && meta.key) {
+      return addWrongItem({
+        key: meta.key,
+        poemId: poemId,
+        mode: mode,
+        index: meta.index,
+        pairIndex: meta.pairIndex,
+      }, silent);
+    }
+    var safeMode = normalizeMode(mode);
+    var key = 'legacy|' + poemId;
+    var found = null;
+    state.wrongItems.forEach(function (item) {
+      if (item.key === key) found = item;
+    });
+    if (found) {
+      found.count += 1;
+      found.time = Date.now();
+      if (safeMode) found.mode = safeMode;
+    } else {
+      state.wrongItems.unshift({
+        key: key,
+        poemId: poemId,
+        mode: safeMode,
+        index: null,
+        pairIndex: null,
+        time: Date.now(),
+        count: 1,
+      });
+    }
+    state.wrongItems = state.wrongItems.slice(0, WRONG_ITEM_LIMIT);
+    syncWrongBook(state);
+    if (!silent) save();
+    return state;
+  }
+
+  /** 加入一条题目级错题（同一题重复答错累加 count） */
+  function addWrongItem(info, silent) {
+    if (!info || typeof info.poemId !== 'string' || !info.poemId) return state;
+    var key = typeof info.key === 'string' ? info.key.trim() : '';
+    if (!key) return state;
+    var safeMode = normalizeMode(info.mode);
+    var found = null;
+    state.wrongItems.forEach(function (item) {
+      if (item.key === key) found = item;
+    });
+    if (found) {
+      found.count += 1;
+      found.time = Date.now();
+      if (safeMode) found.mode = safeMode;
+      if (Number.isInteger(info.index)) found.index = info.index;
+      if (Number.isInteger(info.pairIndex)) found.pairIndex = info.pairIndex;
+    } else {
+      state.wrongItems.unshift({
+        key: key,
+        poemId: info.poemId,
+        mode: safeMode,
+        index: Number.isInteger(info.index) ? info.index : null,
+        pairIndex: Number.isInteger(info.pairIndex) ? info.pairIndex : null,
+        time: Date.now(),
+        count: 1,
+      });
+    }
+    state.wrongItems = state.wrongItems.slice(0, WRONG_ITEM_LIMIT);
+    syncWrongBook(state);
+    if (!silent) save();
+    return state;
+  }
+
+  function removeWrong(poemId, silent) {
+    state.wrongItems = state.wrongItems.filter(function (item) {
+      return item.poemId !== poemId;
+    });
+    syncWrongBook(state);
+    if (!silent) save();
+    return state;
+  }
+
+  function removeWrongItem(key, silent) {
+    if (!key) return state;
+    state.wrongItems = state.wrongItems.filter(function (item) {
+      return item.key !== key;
+    });
+    syncWrongBook(state);
+    if (!silent) save();
+    return state;
+  }
+
+  function recordQuiz(poemId, isCorrect, mode, meta) {
     var day = Utils.todayKey();
     if (!state.daily[day]) state.daily[day] = { quiz: 0, correct: 0 };
     state.daily[day].quiz += 1;
@@ -434,6 +747,15 @@
     if (isCorrect) state.quizStats.correct += 1;
     else state.quizStats.wrong += 1;
 
+    var safeMode = normalizeMode(mode);
+    if (safeMode) {
+      var modeItem = state.quizStats.byMode[safeMode] || { total: 0, correct: 0, wrong: 0 };
+      modeItem.total += 1;
+      if (isCorrect) modeItem.correct += 1;
+      else modeItem.wrong += 1;
+      state.quizStats.byMode[safeMode] = modeItem;
+    }
+
     if (poemId) {
       var item = state.quizStats.byPoem[poemId] || { total: 0, correct: 0, wrong: 0, lastTime: 0 };
       item.total += 1;
@@ -442,39 +764,25 @@
       item.lastTime = Date.now();
       state.quizStats.byPoem[poemId] = item;
       touchRecent(poemId);
-      /* 产品设计：答对一次即认为该篇目已经掌握，整条错题记录移除（不是 count-1）。
-         这样错题本只保留“当前还没背熟的篇目”，unit test 覆盖了这一行为。 */
-      if (isCorrect) removeWrong(poemId, true);
-      else addWrong(poemId, mode, true);
+
+      /* 题目级：答对只移除这一题；旧调用 / 旧数据没有 key 时保持整篇移除。 */
+      if (isCorrect) {
+        if (meta && typeof meta.key === 'string' && meta.key) removeWrongItem(meta.key, true);
+        else removeWrong(poemId, true);
+      } else if (meta && typeof meta.key === 'string' && meta.key) {
+        addWrongItem({
+          key: meta.key,
+          poemId: poemId,
+          mode: safeMode,
+          index: meta.index,
+          pairIndex: meta.pairIndex,
+        }, true);
+      } else {
+        addWrong(poemId, safeMode, true);
+      }
+      scheduleReview(poemId, isCorrect);
     }
     save();
-    return state;
-  }
-
-  function addWrong(poemId, mode, silent) {
-    if (!poemId) return state;
-    var safeMode = MODE_KEYS.indexOf(mode) !== -1 ? mode : '';
-    var found = null;
-    state.wrongBook.forEach(function (item) {
-      if (item.id === poemId) found = item;
-    });
-    if (found) {
-      found.count += 1;
-      found.time = Date.now();
-      found.mode = safeMode || found.mode;
-    } else {
-      state.wrongBook.unshift({ id: poemId, time: Date.now(), count: 1, mode: safeMode });
-    }
-    state.wrongBook = state.wrongBook.slice(0, WRONG_LIMIT);
-    if (!silent) save();
-    return state;
-  }
-
-  function removeWrong(poemId, silent) {
-    state.wrongBook = state.wrongBook.filter(function (item) {
-      return item.id !== poemId;
-    });
-    if (!silent) save();
     return state;
   }
 
@@ -483,19 +791,85 @@
     return state.daily[day] || { quiz: 0, correct: 0 };
   }
 
+  function wrongItemsForPoem(poemId) {
+    return state.wrongItems.filter(function (item) {
+      return item.poemId === poemId;
+    });
+  }
+
+  function wrongItemKeysForPoems(ids) {
+    var allowed = Object.create(null);
+    Utils.toArray(ids).forEach(function (id) {
+      allowed[id] = true;
+    });
+    return state.wrongItems
+      .filter(function (item) {
+        return allowed[item.poemId] && item.key.indexOf('legacy|') !== 0;
+      })
+      .map(function (item) {
+        return item.key;
+      });
+  }
+
+  function duePoemIds(day) {
+    var today = Utils.todayKey(day);
+    return Object.keys(state.review)
+      .filter(function (id) {
+        var item = state.review[id];
+        return item && Utils.isDueDay(item.due, today);
+      })
+      .sort(function (a, b) {
+        var da = state.review[a].due || '';
+        var db = state.review[b].due || '';
+        if (da !== db) return da < db ? -1 : 1;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+  }
+
+  function reviewFor(poemId) {
+    return state.review[poemId] || null;
+  }
+
+  /** 导出学习数据（纯本地文件，不上传） */
+  function exportData() {
+    return {
+      app: 'hison-poetry-recite',
+      version: (global.PoetryMeta && global.PoetryMeta.version) || '',
+      schema: SCHEMA_VERSION,
+      exportedAt: Date.now(),
+      state: JSON.parse(JSON.stringify(state)),
+    };
+  }
+
+  /** 导入学习数据：先 sanitize / prune，再整体替换本机数据；返回 { ok, error } */
+  function importData(payload) {
+    var raw = payload && typeof payload === 'object' && payload.state ? payload.state : payload;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { ok: false, error: '文件里没有可识别的学习数据。' };
+    }
+    var next = sanitize(raw);
+    pruneUnknownIds(next);
+    state = next;
+    save();
+    return { ok: true, state: state };
+  }
+
   global.PoetryStorage = {
     KEY: STORAGE_KEY,
     MODE_KEYS: MODE_KEYS,
     QUIZ_COUNT_OPTIONS: QUIZ_COUNT_OPTIONS,
+    SRS_STEPS: SRS_STEPS,
     defaults: defaults,
     load: load,
     save: save,
     patch: patch,
+    updatePrefs: updatePrefs,
     reset: reset,
     sanitize: sanitize,
     validate: validate,
     pruneUnknownIds: pruneUnknownIds,
     normalizeQuizCount: normalizeQuizCount,
+    normalizeFontScale: normalizeFontScale,
     getState: getState,
     getLoadIssue: function () {
       return loadIssue;
@@ -503,7 +877,15 @@
     markLearned: markLearned,
     recordQuiz: recordQuiz,
     addWrong: addWrong,
+    addWrongItem: addWrongItem,
     removeWrong: removeWrong,
+    removeWrongItem: removeWrongItem,
+    wrongItemsForPoem: wrongItemsForPoem,
+    wrongItemKeysForPoems: wrongItemKeysForPoems,
+    duePoemIds: duePoemIds,
+    reviewFor: reviewFor,
+    exportData: exportData,
+    importData: importData,
     touchRecent: function (poemId) {
       touchRecent(poemId);
       save();

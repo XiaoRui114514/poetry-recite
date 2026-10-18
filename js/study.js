@@ -5,7 +5,13 @@
    保证翻译的布局占位始终存在，隐藏 / 显示不会让整首诗重新排版、页面跳动。
    考试重点星标：正文左侧是独立的 marker 列（数据来自 poem.examFocus，只存句子下标），
    ★ 只出现在 marker 里，绝不进入正文文本；marker 列宽固定，有没有 ★ 都由 CSS 留位，
-   所以任何显隐状态都不会让原文左右移动。 */
+   所以任何显隐状态都不会让原文左右移动。
+
+   v1.5 新增（都做成独立开关，不改变默认的全文模式）：
+   - 逐句背：一次只显示当前一句，前后句淡化；
+   - 只看重点：非 examFocus 句折叠；
+   - 固定工具条 + 键盘快捷键 + 手机左右滑；
+   - 字号三档、译文开关、专注模式（偏好保存在本机）。 */
 (function (global) {
   'use strict';
 
@@ -19,6 +25,12 @@
     keywordMode: false,
     activeIndex: -1,
     list: [],
+    sentences: [],
+    translations: [],
+    focusMap: {},
+    reciteMode: false,
+    focusOnly: false,
+    root: null,
   };
 
   /** 作者隐形指纹：随正文复制而传播（零宽字符，不参与阅读与判分） */
@@ -27,12 +39,23 @@
     return brand && brand.signature ? brand.signature() : '';
   }
 
+  function prefs() {
+    var data = Storage.getState ? Storage.getState() : null;
+    return (data && data.prefs) || {};
+  }
+
   function resetState(poemId, list) {
+    var poem = DB.byId(poemId);
     state.poemId = poemId;
     state.hidden = {};
     state.keywordMode = false;
     state.activeIndex = -1;
     state.list = list;
+    state.reciteMode = false;
+    state.focusOnly = false;
+    state.sentences = poem ? Utils.splitSentences(poem.text) : [];
+    state.translations = poem ? DB.translationLines(poem) : [];
+    state.focusMap = poem ? DB.examFocusMap(poem) : Object.create(null);
   }
 
   function currentPoem() {
@@ -41,13 +64,10 @@
 
   /* ---------------- 逐句翻译 ---------------- */
 
-  /**
-   * 与 splitSentences(poem.text) 下标一一对应的翻译数组（缺翻译处为 ''）。
-   * 对齐由数据库层负责，页面只按 index 取用，不做任何字符串搜索匹配。
-   */
   function poemTranslations(poem) {
-    if (!poem || typeof DB.translationLines !== 'function') return [];
-    return DB.translationLines(poem);
+    if (!poem) return [];
+    if (poem.id === state.poemId && state.translations.length) return state.translations;
+    return typeof DB.translationLines === 'function' ? DB.translationLines(poem) : [];
   }
 
   /** 翻译区域是否显示（= 该句原文是否完整显示，与 state 单一来源保持一致） */
@@ -57,13 +77,10 @@
 
   /* ---------------- 考试重点星标 ---------------- */
 
-  /**
-   * 与 splitSentences(poem.text) 下标一一对应的重点标记表：{ index: { reason } }。
-   * 只按 index 取用，不做任何字符串匹配；数据缺失 / 越界时返回空表（页面照常渲染）。
-   */
   function examFocusMap(poem) {
-    if (!poem || typeof DB.examFocusMap !== 'function') return Object.create(null);
-    return DB.examFocusMap(poem);
+    if (!poem) return Object.create(null);
+    if (poem.id === state.poemId && state.focusMap) return state.focusMap;
+    return typeof DB.examFocusMap === 'function' ? DB.examFocusMap(poem) : Object.create(null);
   }
 
   /**
@@ -87,10 +104,6 @@
 
   /* ---------------- 渲染 ---------------- */
 
-  /**
-   * 原文纯文本：完整显示 / 整句挖空 / 关键词挖空。
-   * 只产出纯文本（可安全地走 textContent），避免每次点击都重新解析 HTML。
-   */
   function sentenceText(sentence, hidden) {
     if (!hidden) return String(sentence);
     if (state.keywordMode) {
@@ -128,17 +141,24 @@
     );
   }
 
+  function lineClass(index) {
+    var hidden = !!state.hidden[index];
+    var focused = !!state.focusMap[index];
+    return 'line-item' +
+      (hidden ? ' is-hidden' : '') +
+      (state.activeIndex === index ? ' is-active' : '') +
+      (focused ? ' is-focus' : ' is-nonfocus');
+  }
+
   function renderSentences(poem) {
-    var sentences = Utils.splitSentences(poem.text);
+    var sentences = state.sentences.length ? state.sentences : Utils.splitSentences(poem.text);
     var translations = poemTranslations(poem);
     var focus = examFocusMap(poem);
     return sentences
       .map(function (sentence, index) {
         var hidden = !!state.hidden[index];
-        var cls = 'line-item' + (hidden ? ' is-hidden' : '') + (state.activeIndex === index ? ' is-active' : '');
         return (
-          '<button type="button" class="' + cls + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
-          // marker 与正文是两个相互独立的元素：★ 永远不会拼进诗句字符串
+          '<button type="button" class="' + lineClass(index) + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
           renderMarker(!!focus[index], examVisible(index)) +
           '<span class="line-content">' +
           '<span class="line-text">' + Utils.escapeHtml(sentenceText(sentence, hidden)) + brandSig() + '</span>' +
@@ -159,7 +179,7 @@
     var body = root.querySelector('#poemBody');
     if (!poem || !body) return;
     var nodes = body.querySelectorAll('.line-item');
-    var sentences = Utils.splitSentences(poem.text);
+    var sentences = state.sentences.length ? state.sentences : Utils.splitSentences(poem.text);
     if (nodes.length !== sentences.length) {
       refreshBody(root);
       return;
@@ -174,18 +194,17 @@
       var markerEl = node.querySelector('.line-marker');
       if (textEl) textEl.textContent = sentenceText(sentences[index], hidden) + brandSig();
       if (zhEl) {
-        // 先更新文字：翻译区域由 CSS 固定占位，改文字不会影响整首诗的高度
         zhEl.textContent = translations[index] || '';
-        // 翻译的显示条件 = 当前这一句原文完整显示
         zhEl.classList.toggle('is-off', !transVisible(index));
       }
       if (markerEl) {
-        // 星标只由「这一句是不是重点 + 原文是否完整显示」决定，与正文内容无关
         markerEl.textContent = focus[index] ? '★' : '';
         markerEl.classList.toggle('is-off', !examVisible(index));
       }
       node.classList.toggle('is-hidden', hidden);
       node.classList.toggle('is-active', state.activeIndex === index);
+      node.classList.toggle('is-focus', !!focus[index]);
+      node.classList.toggle('is-nonfocus', !focus[index]);
       node.setAttribute('aria-pressed', hidden ? 'true' : 'false');
     }
   }
@@ -215,7 +234,6 @@
       .join('');
   }
 
-  /** 中心思想 / 主旨：文章级信息，放在整篇诗文之后；没有数据时整块不渲染 */
   function renderSummary(poem) {
     var text = summaryText(poem);
     if (!text) return '';
@@ -257,6 +275,37 @@
     return html;
   }
 
+  function toolbarHtml() {
+    var p = prefs();
+    var scale = Storage.normalizeFontScale(p.fontScale);
+    return (
+      '<div class="study-toolbar">' +
+        '<button type="button" class="btn btn-sm" data-action="reveal-all">显示全部</button>' +
+        '<button type="button" class="btn btn-sm" data-action="hide-all">逐句隐藏</button>' +
+        '<button type="button" class="btn btn-sm" data-action="toggle-keyword">关键词隐藏</button>' +
+        '<button type="button" class="btn btn-sm" data-action="prev-line">上一句</button>' +
+        '<button type="button" class="btn btn-sm" data-action="next-line">下一句</button>' +
+        '<span class="toolbar-sep" aria-hidden="true"></span>' +
+        '<button type="button" class="btn btn-sm" data-action="toggle-recite">逐句背</button>' +
+        '<button type="button" class="btn btn-sm" data-action="toggle-focus">只看重点</button>' +
+        '<button type="button" class="btn btn-sm" data-action="toggle-translation">译文：' + (p.showTranslation === false ? '关' : '开') + '</button>' +
+        '<button type="button" class="btn btn-sm" data-action="font-down" aria-label="正文字号调小"' + (scale <= 0 ? ' disabled' : '') + '>A−</button>' +
+        '<button type="button" class="btn btn-sm" data-action="font-up" aria-label="正文字号调大"' + (scale >= 2 ? ' disabled' : '') + '>A＋</button>' +
+        '<button type="button" class="btn btn-sm" data-action="toggle-focusmode">' + (p.focusMode ? '退出专注' : '专注') + '</button>' +
+      '</div>' +
+      '<div class="study-status">' +
+        '<span id="studyProgress">' + Object.keys(state.hidden).length + ' / ' + state.sentences.length + ' 句已隐藏</span>' +
+        '<span id="studyPosition">' + positionText() + '</span>' +
+      '</div>'
+    );
+  }
+
+  function positionText() {
+    if (!state.sentences.length) return '';
+    if (state.activeIndex < 0) return '共 ' + state.sentences.length + ' 句';
+    return '第 ' + (state.activeIndex + 1) + ' / ' + state.sentences.length + ' 句';
+  }
+
   function render(root) {
     var poem = currentPoem();
     if (!poem) {
@@ -275,6 +324,7 @@
         );
       })
       .join('');
+    var p = prefs();
 
     root.innerHTML =
       '<section class="card">' +
@@ -282,14 +332,8 @@
           '<label class="filter-label" for="studyPoemSelect">切换篇目（共 ' + state.list.length + ' 篇）</label>' +
           '<select id="studyPoemSelect">' + options + '</select>' +
         '</div>' +
-        '<div class="study-toolbar">' +
-          '<button type="button" class="btn btn-sm" data-action="reveal-all">显示全部</button>' +
-          '<button type="button" class="btn btn-sm" data-action="hide-all">逐句隐藏</button>' +
-          '<button type="button" class="btn btn-sm' + (state.keywordMode ? ' btn-primary' : '') + '" data-action="toggle-keyword">关键词隐藏</button>' +
-          '<button type="button" class="btn btn-sm" data-action="prev-line">上一句</button>' +
-          '<button type="button" class="btn btn-sm" data-action="next-line">下一句</button>' +
-        '</div>' +
       '</section>' +
+      '<div class="study-toolbar-wrap">' + toolbarHtml() + '</div>' +
       '<section class="card">' +
         '<div class="poem-head">' +
           '<h2>' + Utils.escapeHtml(poem.title) + '</h2>' +
@@ -301,24 +345,27 @@
             (learned ? '<span class="badge badge-warn">已学习</span>' : '') +
           '</div>' +
         '</div>' +
-        '<div class="poem-body" id="poemBody">' + renderSentences(poem) + '</div>' +
+        '<div class="poem-body' + (state.reciteMode ? ' is-recite' : '') + (state.focusOnly ? ' is-focus-only' : '') + (p.showTranslation === false ? ' hide-translation' : '') + '" id="poemBody">' + renderSentences(poem) + '</div>' +
         renderSummary(poem) +
         '<div class="hint-bar">' +
-          '<span class="tiny muted">点击任意句子可以隐藏 / 显示，方便自己先背一遍。</span>' +
-          '<span class="tiny muted" id="studyProgress">' +
-            Object.keys(state.hidden).length + ' / ' + Utils.splitSentences(poem.text).length + ' 句已隐藏' +
-          '</span>' +
+          '<span class="tiny muted">点击任意句子可以隐藏 / 显示；空格键切换当前句，← → 换句。</span>' +
+          '<span class="tiny muted" id="studyProgress2">' + Object.keys(state.hidden).length + ' / ' + state.sentences.length + ' 句已隐藏</span>' +
         '</div>' +
         '<dl class="poem-meta-block">' + renderMeta(poem) + renderHints(poem) + '</dl>' +
       '</section>';
+    applyReadingPrefs(root);
+    syncToolbar(root);
   }
 
   function updateCounters(root) {
+    var hidden = Object.keys(state.hidden).length;
+    var text = hidden + ' / ' + state.sentences.length + ' 句已隐藏';
     var counter = root.querySelector('#studyProgress');
-    var poem = currentPoem();
-    if (counter && poem) {
-      counter.textContent = Object.keys(state.hidden).length + ' / ' + Utils.splitSentences(poem.text).length + ' 句已隐藏';
-    }
+    if (counter) counter.textContent = text;
+    var counter2 = root.querySelector('#studyProgress2');
+    if (counter2) counter2.textContent = text;
+    var position = root.querySelector('#studyPosition');
+    if (position) position.textContent = positionText();
   }
 
   /** 全文重建（只在切换篇目 / 首次渲染时用）；日常交互走 updateLines，不重建 DOM */
@@ -327,6 +374,7 @@
     var body = root.querySelector('#poemBody');
     if (!poem || !body) return;
     body.innerHTML = renderSentences(poem);
+    applyReadingPrefs(root);
     syncToolbar(root);
     updateCounters(root);
   }
@@ -337,9 +385,47 @@
       keywordBtn.classList.toggle('btn-primary', state.keywordMode);
       keywordBtn.setAttribute('aria-pressed', state.keywordMode ? 'true' : 'false');
     }
+    var reciteBtn = root.querySelector('[data-action="toggle-recite"]');
+    if (reciteBtn) {
+      reciteBtn.classList.toggle('btn-primary', state.reciteMode);
+      reciteBtn.setAttribute('aria-pressed', state.reciteMode ? 'true' : 'false');
+      reciteBtn.textContent = state.reciteMode ? '退出逐句' : '逐句背';
+    }
+    var focusBtn = root.querySelector('[data-action="toggle-focus"]');
+    if (focusBtn) {
+      focusBtn.classList.toggle('btn-primary', state.focusOnly);
+      focusBtn.setAttribute('aria-pressed', state.focusOnly ? 'true' : 'false');
+    }
+    var p = prefs();
+    var scale = Storage.normalizeFontScale(p.fontScale);
+    var down = root.querySelector('[data-action="font-down"]');
+    var up = root.querySelector('[data-action="font-up"]');
+    if (down) down.disabled = scale <= 0;
+    if (up) up.disabled = scale >= 2;
+    var transBtn = root.querySelector('[data-action="toggle-translation"]');
+    if (transBtn) transBtn.textContent = '译文：' + (p.showTranslation === false ? '关' : '开');
+    var focusModeBtn = root.querySelector('[data-action="toggle-focusmode"]');
+    if (focusModeBtn) focusModeBtn.textContent = p.focusMode ? '退出专注' : '专注';
+    updateCounters(root);
   }
 
-  /** 一次交互统一收尾：同步诗句、工具栏高亮与计数 */
+  /** 把阅读偏好落到 body / poemBody 上（切页时由 app.js 清理非学习页的类名） */
+  function applyReadingPrefs(root) {
+    var p = prefs();
+    var body = root ? root.querySelector('#poemBody') : null;
+    if (body) {
+      body.classList.toggle('is-recite', state.reciteMode);
+      body.classList.toggle('is-focus-only', state.focusOnly);
+      body.classList.toggle('hide-translation', p.showTranslation === false);
+    }
+    if (document.body) {
+      document.body.classList.toggle('focus-reading', !!p.focusMode);
+      document.body.classList.remove('font-sm', 'font-md', 'font-lg');
+      var scale = Storage.normalizeFontScale(p.fontScale);
+      document.body.classList.add(scale === 0 ? 'font-sm' : scale === 2 ? 'font-lg' : 'font-md');
+    }
+  }
+
   function syncView(root) {
     updateLines(root);
     syncToolbar(root);
@@ -365,17 +451,97 @@
   }
 
   function move(root, delta) {
-    var poem = currentPoem();
-    if (!poem) return;
-    var total = Utils.splitSentences(poem.text).length;
+    var total = state.sentences.length;
     if (!total) return;
-    var next = state.activeIndex + delta;
+    var next;
+    if (state.activeIndex < 0) next = delta < 0 ? total - 1 : 0;
+    else next = state.activeIndex + delta;
     if (next < 0) next = 0;
     if (next >= total) next = total - 1;
     state.activeIndex = next;
     syncView(root);
     var active = root.querySelector('.line-item.is-active');
     if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function firstFocusIndex() {
+    var keys = Object.keys(state.focusMap)
+      .map(Number)
+      .filter(function (n) { return n >= 0; })
+      .sort(function (a, b) { return a - b; });
+    return keys.length ? keys[0] : 0;
+  }
+
+  function revealAll(root) {
+    state.hidden = {};
+    state.keywordMode = false;
+    state.activeIndex = -1;
+    syncView(root);
+  }
+
+  function hideAll(root) {
+    state.sentences.forEach(function (_, index) {
+      state.hidden[index] = true;
+    });
+    syncView(root);
+  }
+
+  function toggleKeyword(root) {
+    state.keywordMode = !state.keywordMode;
+    if (state.keywordMode) {
+      state.sentences.forEach(function (_, index) {
+        state.hidden[index] = true;
+      });
+    }
+    syncView(root);
+  }
+
+  function toggleRecite(root) {
+    state.reciteMode = !state.reciteMode;
+    if (state.reciteMode && state.activeIndex < 0) state.activeIndex = 0;
+    if (!state.reciteMode) state.activeIndex = -1;
+    applyReadingPrefs(root);
+    syncView(root);
+    if (state.reciteMode) {
+      var active = root.querySelector('.line-item.is-active');
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function toggleFocusOnly(root) {
+    state.focusOnly = !state.focusOnly;
+    if (state.focusOnly) {
+      var currentFocus = !!state.focusMap[state.activeIndex];
+      if (!currentFocus) state.activeIndex = firstFocusIndex();
+    }
+    applyReadingPrefs(root);
+    syncView(root);
+  }
+
+  function stepFont(root, delta) {
+    var current = Storage.normalizeFontScale(prefs().fontScale);
+    var next = Utils.clamp(current + delta, 0, 2);
+    if (next === current) return;
+    Storage.updatePrefs({ fontScale: next });
+    applyReadingPrefs(root);
+    syncView(root);
+    if (global.PoetryApp) global.PoetryApp.toast('正文字号：' + ['小', '中', '大'][next]);
+  }
+
+  function toggleTranslation(root) {
+    var next = prefs().showTranslation === false;
+    Storage.updatePrefs({ showTranslation: next });
+    applyReadingPrefs(root);
+    syncView(root);
+    if (global.PoetryApp) global.PoetryApp.toast(next ? '已显示译文' : '已隐藏译文');
+  }
+
+  function toggleFocusMode(root) {
+    var next = !prefs().focusMode;
+    Storage.updatePrefs({ focusMode: next });
+    applyReadingPrefs(root);
+    syncView(root);
+    if (global.PoetryApp) global.PoetryApp.toast(next ? '已进入专注模式' : '已退出专注模式');
   }
 
   function handleClick(root, event) {
@@ -401,29 +567,58 @@
     var poem = currentPoem();
     if (!poem) return;
 
-    if (action === 'reveal-all') {
-      state.hidden = {};
-      state.keywordMode = false;
-      state.activeIndex = -1;
-      syncView(root);
-    } else if (action === 'hide-all') {
-      Utils.splitSentences(poem.text).forEach(function (_, index) {
-        state.hidden[index] = true;
-      });
-      syncView(root);
-    } else if (action === 'toggle-keyword') {
-      state.keywordMode = !state.keywordMode;
-      if (state.keywordMode) {
-        Utils.splitSentences(poem.text).forEach(function (_, index) {
-          state.hidden[index] = true;
-        });
+    if (action === 'reveal-all') revealAll(root);
+    else if (action === 'hide-all') hideAll(root);
+    else if (action === 'toggle-keyword') toggleKeyword(root);
+    else if (action === 'prev-line') move(root, -1);
+    else if (action === 'next-line') move(root, 1);
+    else if (action === 'toggle-recite') toggleRecite(root);
+    else if (action === 'toggle-focus') toggleFocusOnly(root);
+    else if (action === 'font-down') stepFont(root, -1);
+    else if (action === 'font-up') stepFont(root, 1);
+    else if (action === 'toggle-translation') toggleTranslation(root);
+    else if (action === 'toggle-focusmode') toggleFocusMode(root);
+  }
+
+  /** 键盘快捷键：只在学习页由 app.js 统一转发，避免 document 监听器泄漏 */
+  function handleKey(event) {
+    if (!state.poemId || !state.root) return false;
+    var target = event.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return false;
+    var key = event.key;
+    if (key === ' ' || key === 'Spacebar' || key === 'ArrowRight' || key === 'ArrowDown') {
+      event.preventDefault();
+      if (key === ' ') {
+        if (state.activeIndex < 0) state.activeIndex = 0;
+        else if (state.hidden[state.activeIndex]) delete state.hidden[state.activeIndex];
+        else state.hidden[state.activeIndex] = true;
+        syncView(state.root);
+      } else {
+        move(state.root, 1);
       }
-      syncView(root);
-    } else if (action === 'prev-line') {
-      move(root, -1);
-    } else if (action === 'next-line') {
-      move(root, 1);
+      return true;
     }
+    if (key === 'ArrowLeft' || key === 'ArrowUp') {
+      event.preventDefault();
+      move(state.root, -1);
+      return true;
+    }
+    if (key === 'r' || key === 'R') {
+      event.preventDefault();
+      revealAll(state.root);
+      return true;
+    }
+    if (key === 'k' || key === 'K') {
+      event.preventDefault();
+      toggleKeyword(state.root);
+      return true;
+    }
+    if (key === 'f' || key === 'F') {
+      event.preventDefault();
+      toggleFocusOnly(state.root);
+      return true;
+    }
+    return false;
   }
 
   function mount(root, options) {
@@ -438,6 +633,7 @@
       return item.id === wanted;
     });
     var poemId = inList ? wanted : list[0].id;
+    state.root = root;
     resetState(poemId, list);
     Storage.markLearned(poemId);
     render(root);
@@ -450,12 +646,34 @@
         setPoem(root, event.target.value, opts);
       }
     });
+
+    /* 手机左右滑：只在正文区域内生效，避免把下拉选择 / 按钮误判成翻页 */
+    var touchStart = null;
+    root.addEventListener('touchstart', function (event) {
+      if (!event.touches || event.touches.length !== 1) {
+        touchStart = null;
+        return;
+      }
+      var inBody = event.target.closest && event.target.closest('#poemBody');
+      touchStart = inBody ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+    }, { passive: true });
+    root.addEventListener('touchend', function (event) {
+      if (!touchStart || !event.changedTouches || !event.changedTouches.length) return;
+      var dx = event.changedTouches[0].clientX - touchStart.x;
+      var dy = event.changedTouches[0].clientY - touchStart.y;
+      touchStart = null;
+      if (Math.abs(dx) > 50 && Math.abs(dy) < 40) move(root, dx < 0 ? 1 : -1);
+    }, { passive: true });
   }
 
   global.PoetryStudy = {
     mount: mount,
+    handleKey: handleKey,
     currentPoemId: function () {
       return state.poemId;
+    },
+    applyReadingPrefs: function () {
+      if (state.root) applyReadingPrefs(state.root);
     },
   };
 })(window);

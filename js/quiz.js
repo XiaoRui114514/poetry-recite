@@ -1,6 +1,11 @@
 /* 古诗文背诵学习系统 —— 默写自测
    出题思路参考原“上海中考古诗词默写自测”：卡片 + 眼睛按钮展开答案 + 显示全部答案。
-   在此基础上增加多种题型、随机组合、判分与错题本。 */
+   在此基础上增加多种题型、随机组合、判分与错题本。
+
+   v1.5：
+   - 新增「看译文写原文」（理解性默写），直接使用题库里的逐句翻译；
+   - 新增「重点句 / 名句」题目范围，以及「今日复习」练习范围；
+   - 错题记录到题目级，支持原题重练；判分只更新当前题卡，不再重建整组。 */
 (function (global) {
   'use strict';
 
@@ -15,6 +20,7 @@
     { key: 'keyword', label: '关键词提示', desc: '只保留首字与关键词，提示下完成默写。' },
     { key: 'mixed', label: '随机挖空', desc: '在句中随机挖空词语或易错字。' },
     { key: 'full', label: '整句默写', desc: '只给篇目和句序，完整默写该句。' },
+    { key: 'translation', label: '看译文写原文', desc: '给出这句的现代汉语翻译，默写对应原文。' },
   ];
   var MODE_KEY_LIST = MODES.map(function (item) {
     return item.key;
@@ -25,10 +31,16 @@
     answered: {},
     showAll: false,
     notice: '',       // 题目数量不足 / 错题本为空等提示
-    scope: 'all', // 'all' | 'wrong' | 'focus'
-    focusPoemId: '', // 指定“只练某一篇”时的篇目 id
+    scope: 'all',     // 'all' | 'wrong' | 'focus' | 'review'
+    focusPoemId: '',  // 指定“只练某一篇”时的篇目 id
+    questionFilter: 'none', // 'none' | 'exam' | 'name'
+    focusKey: '',     // 从错题本“只练这句”进入时的题目 key
   };
   var lastBatchKeys = [];
+  var unitsCache = Object.create(null);
+  var translationCache = Object.create(null);
+  var focusCache = Object.create(null);
+  var nameCache = Object.create(null);
 
   /** 作者隐形指纹：随题目 / 答案复制而传播 */
   function brandSig() {
@@ -47,6 +59,24 @@
     return Utils.escapeHtml(blanked).replace(/□+/g, function (run) {
       return '<span class="blank-unit">' + run + '</span>';
     });
+  }
+
+  function translationsOf(poem) {
+    if (!poem || !poem.id) return [];
+    if (!translationCache[poem.id]) translationCache[poem.id] = DB.translationLines(poem);
+    return translationCache[poem.id];
+  }
+
+  function focusMapOf(poem) {
+    if (!poem || !poem.id) return Object.create(null);
+    if (!focusCache[poem.id]) focusCache[poem.id] = DB.examFocusMap(poem);
+    return focusCache[poem.id];
+  }
+
+  function nameMapOf(poem) {
+    if (!poem || !poem.id) return Object.create(null);
+    if (!nameCache[poem.id]) nameCache[poem.id] = DB.nameSentenceMap(poem);
+    return nameCache[poem.id];
   }
 
   function keywordOf(poem, sentence) {
@@ -76,8 +106,10 @@
     return found.join('');
   }
 
-  /** 为一个篇目收集所有可出题素材 */
+  /** 为一个篇目收集所有可出题素材（题目级 key 需要稳定的句序 / 小句对序） */
   function unitsOf(poem) {
+    if (!poem || !poem.id) return [];
+    if (unitsCache[poem.id]) return unitsCache[poem.id];
     var sentences = Utils.splitSentences(poem.text);
     var units = [];
     sentences.forEach(function (sentence, sIndex) {
@@ -90,6 +122,7 @@
         units.push({ kind: 'pair', sentence: sentence, index: sIndex, left: clauses[i], right: clauses[i + 1], pairIndex: i });
       }
     });
+    unitsCache[poem.id] = units;
     return units;
   }
 
@@ -105,6 +138,8 @@
       promptHtml: '',
       answerText: unit.sentence,
       position: unit.index + 1,
+      sentenceIndex: unit.index,
+      pairIndex: unit.pairIndex == null ? null : unit.pairIndex,
     };
 
     if (mode === 'next') {
@@ -121,6 +156,16 @@
       question.promptHtml = blankHtml(pairPrev.left) + Utils.escapeHtml(pairPrev.right);
       question.answerText = pairPrev.left + pairPrev.right;
       question.hint = '补出上句';
+      return question;
+    }
+    if (mode === 'translation') {
+      /* 只对整句出题：译文与原文严格一一对应，pair 小句不单独拿译文 */
+      if (unit.kind !== 'sentence') return null;
+      var line = translationsOf(poem)[unit.index];
+      if (!line) return null;
+      question.promptHtml = '<span class="context-hint">看译文写原文</span>' +
+        '<span class="translation-prompt">' + Utils.escapeHtml(line) + '</span>';
+      question.hint = '根据译文写出对应原文（标点可以省略）';
       return question;
     }
     if (unit.kind !== 'sentence') return null;
@@ -169,14 +214,17 @@
 
   /**
    * 枚举这批篇目 + 这批题型下所有可能的题目。
+   * filter(poem, unit) 可选，用于“只练重点句 / 名句”。
    * 这样“最多能出多少题”是算出来的，而不是靠概率去碰，
    * 素材不足时可以如实告诉用户本次只能生成多少题。
    */
-  function allCandidates(poems, modes) {
+  function allCandidates(poems, modes, filter) {
     var seen = Object.create(null);
     var out = [];
+    var filterFn = typeof filter === 'function' ? filter : null;
     Utils.shuffle(poems).forEach(function (poem) {
       unitsOf(poem).forEach(function (unit) {
+        if (filterFn && !filterFn(poem, unit)) return;
         modes.forEach(function (mode) {
           var question = buildQuestion(poem, unit, mode);
           if (!question || seen[question.key]) return;
@@ -199,20 +247,39 @@
     );
     if (!modes.length) modes = MODE_KEY_LIST.slice();
 
-    var candidates = allCandidates(poems, modes);
-    var fresh = candidates.filter(function (question) {
+    var candidates = allCandidates(poems, modes, opts.filter);
+    var onlyKeys = Utils.unique(Utils.toArray(opts.onlyKeys));
+    if (onlyKeys.length) {
+      var onlySet = Object.create(null);
+      onlyKeys.forEach(function (key) { onlySet[key] = true; });
+      candidates = candidates.filter(function (question) {
+        return !!onlySet[question.key];
+      });
+    }
+
+    var preferKeys = Utils.unique(Utils.toArray(opts.preferKeys));
+    var preferSet = Object.create(null);
+    preferKeys.forEach(function (key) { preferSet[key] = true; });
+    var preferred = candidates.filter(function (question) {
+      return !!preferSet[question.key];
+    });
+    var rest = candidates.filter(function (question) {
+      return !preferSet[question.key];
+    });
+    var fresh = rest.filter(function (question) {
       return lastBatchKeys.indexOf(question.key) === -1;
     });
-    var ordered =
-      fresh.length >= count
-        ? Utils.shuffle(fresh)
-        : Utils.shuffle(fresh).concat(
-            Utils.shuffle(
-              candidates.filter(function (question) {
-                return fresh.indexOf(question) === -1;
-              })
-            )
-          );
+    var stale = rest.filter(function (question) {
+      return lastBatchKeys.indexOf(question.key) !== -1;
+    });
+
+    var ordered = onlyKeys.length
+      ? Utils.shuffle(candidates)
+      : Utils.shuffle(preferred).concat(
+          fresh.length >= count
+            ? Utils.shuffle(fresh)
+            : Utils.shuffle(fresh).concat(Utils.shuffle(stale))
+        );
     var questions = ordered.slice(0, count);
     lastBatchKeys = questions.map(function (item) {
       return item.key;
@@ -273,7 +340,7 @@
     return found;
   }
 
-  /** 按当前练习范围取出篇目；错题本为空时回退到全部已选篇目 */
+  /** 按当前练习范围取出篇目；错题本 / 今日复习为空时回退到全部已选篇目 */
   function scopePoems(list, focusPoem) {
     if (state.scope === 'focus') {
       if (focusPoem) return { list: [focusPoem], notice: '' };
@@ -289,17 +356,46 @@
       if (filtered.length) return { list: filtered, notice: '' };
       return { list: list, notice: '错题本是空的，已按全部已选篇目出题。' };
     }
+    if (state.scope === 'review') {
+      var dueIds = Storage.duePoemIds();
+      var dueList = list.filter(function (poem) {
+        return dueIds.indexOf(poem.id) !== -1;
+      });
+      if (dueList.length) return { list: dueList, notice: '' };
+      return { list: list, notice: '今天没有到期复习的篇目，已按全部已选篇目出题。' };
+    }
     return { list: list, notice: '' };
+  }
+
+  function questionFilterFn(filter) {
+    if (filter === 'exam') {
+      return function (poem, unit) {
+        return !!focusMapOf(poem)[unit.index];
+      };
+    }
+    if (filter === 'name') {
+      return function (poem, unit) {
+        return !!nameMapOf(poem)[unit.index];
+      };
+    }
+    return null;
   }
 
   function renderQuestions(root, options) {
     var box = root.querySelector('#quizList');
     if (!box) return;
     if (!state.questions.length) {
-      box.innerHTML = '<div class="card"><div class="empty-state">还没有题目，点击「生成题目 / 换一批」开始默写自测。</div></div>';
+      box.innerHTML = '<div class="card"><div class="empty-state">还没有题目，点击「生成题目 / 换一批」开始默写自测；如果刚切了题目范围，也可以换回「全部句子」。</div></div>';
+      updateChrome(root);
+      if (options && options.onProgress) options.onProgress();
       return;
     }
     box.innerHTML = state.questions.map(renderQuestion).join('');
+    updateChrome(root);
+    if (options && options.onProgress) options.onProgress();
+  }
+
+  function updateChrome(root) {
     var counter = root.querySelector('#quizCounter');
     if (counter) counter.textContent = statsLine();
     var notice = root.querySelector('#quizNotice');
@@ -309,7 +405,6 @@
     }
     var btn = root.querySelector('[data-action="toggle-all"]');
     if (btn) btn.textContent = state.showAll ? '隐藏全部答案' : '显示全部答案';
-    if (options && options.onProgress) options.onProgress();
   }
 
   function render(root, options) {
@@ -322,11 +417,15 @@
         return poem.id === item.id;
       });
     }).length;
+    var dueIds = Storage.duePoemIds();
+    var dueCount = opts.list.filter(function (poem) {
+      return dueIds.indexOf(poem.id) !== -1;
+    }).length;
 
     root.innerHTML =
       '<section class="card">' +
         '<h2 class="section-title">默写自测</h2>' +
-        '<p class="section-desc">共选择 ' + opts.list.length + ' 篇 · 题库 ' + DB.all().length + ' 篇 · 当前错题 ' + wrongCount + ' 篇</p>' +
+        '<p class="section-desc">共选择 ' + opts.list.length + ' 篇 · 题库 ' + DB.all().length + ' 篇 · 当前错题 ' + wrongCount + ' 篇 · <span class="nowrap">今日待复习 ' + dueCount + ' 篇</span></p>' +
         '<div class="quiz-settings" style="margin-top:0.9rem;">' +
           '<div class="filter-group">' +
             '<span class="filter-label">题型（不选表示随机组合）</span>' +
@@ -358,6 +457,15 @@
                 ? '<button type="button" class="chip' + (state.scope === 'focus' ? ' active' : '') + '" data-scope="focus">只练《' + Utils.escapeHtml(focusPoem.title) + '》</button>'
                 : '') +
               '<button type="button" class="chip' + (state.scope === 'wrong' ? ' active' : '') + '" data-scope="wrong">优先错题（' + wrongCount + '）</button>' +
+              '<button type="button" class="chip' + (state.scope === 'review' ? ' active' : '') + '" data-scope="review">今日复习（' + dueCount + '）</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="filter-group">' +
+            '<span class="filter-label">题目范围</span>' +
+            '<div class="chips">' +
+              '<button type="button" class="chip' + (state.questionFilter === 'none' ? ' active' : '') + '" data-question-filter="none">全部句子</button>' +
+              '<button type="button" class="chip' + (state.questionFilter === 'exam' ? ' active' : '') + '" data-question-filter="exam">考试重点句</button>' +
+              '<button type="button" class="chip' + (state.questionFilter === 'name' ? ' active' : '') + '" data-question-filter="name">名句</button>' +
             '</div>' +
           '</div>' +
           '<div class="select-actions">' +
@@ -378,18 +486,58 @@
     var prefs = Storage.getState().prefs;
     var picked = scopePoems(options.list, focusOf(options.list));
     var requested = Storage.normalizeQuizCount(prefs.quizCount);
-    state.questions = pickQuestions(picked.list, { count: requested, modes: prefs.modes });
+    var ids = picked.list.map(function (poem) {
+      return poem.id;
+    });
+    var preferKeys = state.scope === 'wrong' ? Storage.wrongItemKeysForPoems(ids) : [];
+    var onlyKeys = state.focusKey ? [state.focusKey] : [];
+    state.questions = pickQuestions(picked.list, {
+      count: requested,
+      modes: prefs.modes,
+      filter: questionFilterFn(state.questionFilter),
+      preferKeys: preferKeys,
+      onlyKeys: onlyKeys,
+    });
     state.answered = {};
     state.showAll = false;
-    var short =
-      state.questions.length < requested
-        ? '当前条件最多可生成 ' + state.questions.length + ' 题，本次生成 ' + state.questions.length + ' / ' + requested + ' 题。'
-        : '';
-    state.notice = [picked.notice, short].filter(Boolean).join(' ');
+    var notices = [];
+    if (picked.notice) notices.push(picked.notice);
+    if (state.scope === 'wrong' && !preferKeys.length) {
+      notices.push('错题本里还没有可定位到句子的记录，已按篇目出题。');
+    }
+    if (state.focusKey && !state.questions.length) {
+      notices.push('这条错题已经不在当前题库 / 筛选范围内。');
+    }
+    if (state.questions.length < requested) {
+      notices.push('当前条件最多可生成 ' + state.questions.length + ' 题，本次生成 ' + state.questions.length + ' / ' + requested + ' 题。');
+    }
+    state.notice = notices.filter(Boolean).join(' ');
     renderQuestions(root, options);
     if (global.PoetryApp) {
       global.PoetryApp.toast((state.notice ? state.notice + ' ' : '') + '已生成 ' + state.questions.length + ' 道题');
     }
+  }
+
+  function escapeAttr(value) {
+    return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  /** 判分后只替换当前题卡，避免整组重绘造成闪烁 / 读屏重复朗读 */
+  function refreshCard(root, key, options) {
+    var index = -1;
+    state.questions.forEach(function (question, i) {
+      if (question.key === key) index = i;
+    });
+    if (index === -1) return;
+    var card = root.querySelector('.quiz-card[data-key="' + escapeAttr(key) + '"]');
+    if (!card || !card.parentNode) return;
+    var holder = document.createElement('div');
+    holder.innerHTML = renderQuestion(state.questions[index], index);
+    var next = holder.firstElementChild;
+    if (!next) return;
+    card.parentNode.replaceChild(next, card);
+    updateChrome(root);
+    if (options && options.onProgress) options.onProgress();
   }
 
   function handleClick(root, event, options) {
@@ -397,6 +545,7 @@
     var actionEl = target.closest ? target.closest('[data-action]') : null;
     var countEl = target.closest ? target.closest('[data-count]') : null;
     var scopeEl = target.closest ? target.closest('[data-scope]') : null;
+    var filterEl = target.closest ? target.closest('[data-question-filter]') : null;
 
     if (countEl) {
       Storage.getState().prefs.quizCount = Number(countEl.getAttribute('data-count')) || 10;
@@ -408,9 +557,19 @@
     }
     if (scopeEl) {
       var scope = scopeEl.getAttribute('data-scope');
-      state.scope = scope === 'wrong' || scope === 'focus' ? scope : 'all';
+      state.scope = scope === 'wrong' || scope === 'focus' || scope === 'review' ? scope : 'all';
+      state.focusKey = '';
       root.querySelectorAll('[data-scope]').forEach(function (el) {
         el.classList.toggle('active', el === scopeEl);
+      });
+      return;
+    }
+    if (filterEl) {
+      var filter = filterEl.getAttribute('data-question-filter');
+      state.questionFilter = filter === 'exam' || filter === 'name' ? filter : 'none';
+      state.focusKey = '';
+      root.querySelectorAll('[data-question-filter]').forEach(function (el) {
+        el.classList.toggle('active', el === filterEl);
       });
       return;
     }
@@ -430,6 +589,8 @@
       state.questions = [];
       state.answered = {};
       state.showAll = false;
+      state.notice = '';
+      state.focusKey = '';
       renderQuestions(root, options);
       return;
     }
@@ -463,20 +624,13 @@
         return;
       }
       var correct = action === 'mark-right';
-      Storage.recordQuiz(question.poemId, correct, question.mode);
+      Storage.recordQuiz(question.poemId, correct, question.mode, {
+        key: question.key,
+        index: question.sentenceIndex,
+        pairIndex: question.pairIndex,
+      });
       state.answered[qKey] = { correct: correct, showAnswer: true };
-
-      var cardEl = actionEl.closest('.quiz-card');
-      var wrapperEl = cardEl ? cardEl.querySelector('.answer-wrapper') : null;
-      if (wrapperEl) wrapperEl.classList.add('show');
-      var eye = cardEl ? cardEl.querySelector('.btn-eye') : null;
-      if (eye) {
-        var s = eye.querySelector('.show-eye');
-        var h = eye.querySelector('.hide-eye');
-        if (s) s.classList.add('hidden');
-        if (h) h.classList.remove('hidden');
-      }
-      renderQuestions(root, options);
+      refreshCard(root, qKey, options);
       if (global.PoetryApp) {
         global.PoetryApp.toast(correct ? '已记录：默写正确' : '已加入错题本，下次优先练习');
       }
@@ -496,7 +650,10 @@
       if (opts.focusPoemId && poem.id === opts.focusPoemId) focus = poem;
     });
     state.focusPoemId = focus ? focus.id : '';
-    state.scope = state.focusPoemId ? 'focus' : 'all';
+    if (opts.initialScope === 'review' || opts.initialScope === 'wrong') state.scope = opts.initialScope;
+    else state.scope = state.focusPoemId ? 'focus' : 'all';
+    state.questionFilter = 'none';
+    state.focusKey = typeof opts.focusKey === 'string' ? opts.focusKey : '';
     render(root, opts);
     root.addEventListener('click', function (event) {
       handleClick(root, event, opts);
@@ -524,6 +681,8 @@
       return {
         scope: state.scope,
         focusPoemId: state.focusPoemId,
+        questionFilter: state.questionFilter,
+        focusKey: state.focusKey,
         questionCount: state.questions.length,
         notice: state.notice,
       };
@@ -534,6 +693,7 @@
       buildQuestion: buildQuestion,
       allCandidates: allCandidates,
       pickQuestions: pickQuestions,
+      questionFilterFn: questionFilterFn,
       resetLastBatch: function () {
         lastBatchKeys = [];
       },

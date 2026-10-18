@@ -34,6 +34,12 @@
   --color-accent-wash: oklch(93.5% 0.035 30);
   --color-focus: oklch(48% 0.17 28);
 
+  /* 热力图：同一条朱砂色相的四级浓度，不引入第二强调色 */
+  --heat-1: oklch(91% 0.04 30);
+  --heat-2: oklch(84% 0.08 30);
+  --heat-3: oklch(72% 0.12 30);
+  --heat-4: oklch(55% 0.16 28);
+
   /* 语义色：对 = 竹青 · 错 = 绛 · 提示 = 赭 */
   --color-ok: oklch(46% 0.095 155);
   --color-ok-ink: oklch(97% 0.012 155);
@@ -117,6 +123,10 @@ html[data-theme='dark'] {
   --color-accent-ink: oklch(18% 0.02 30);
   --color-accent-wash: oklch(26% 0.05 28);
   --color-focus: oklch(72% 0.15 30);
+  --heat-1: oklch(30% 0.035 30);
+  --heat-2: oklch(38% 0.06 30);
+  --heat-3: oklch(50% 0.09 30);
+  --heat-4: oklch(66% 0.14 30);
   --color-ok: oklch(74% 0.10 155);
   --color-ok-ink: oklch(18% 0.02 155);
   --color-ok-wash: oklch(26% 0.035 155);
@@ -352,6 +362,7 @@ button, input, select { font-family: inherit; }
 
 .muted { color: var(--color-ink-2); }
 .tiny { font-size: var(--text-md); }
+.nowrap { white-space: nowrap; }
 
 /* 标签：印刷小签，不是胶囊 */
 .badge {
@@ -452,6 +463,10 @@ button, input, select { font-family: inherit; }
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
+
+/* 换页后会把焦点移到标题（供读屏软件朗读），标题本身不需要可见焦点框 */
+.view-root h1:focus,
+.view-root h2:focus { outline: none; }
 
 /* ============ 筛选标签 ============ */
 
@@ -781,6 +796,20 @@ select {
 }
 .poem-card .poem-sub { display: block; margin-top: var(--space-3xs); color: var(--color-ink-3); font-size: var(--text-md); }
 .poem-card .poem-tags { display: flex; flex-wrap: wrap; gap: var(--space-2xs); margin-top: var(--space-2xs); }
+.poem-card .poem-match {
+  display: block;
+  margin-top: var(--space-2xs);
+  color: var(--color-ink-2);
+  font-size: var(--text-md);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.poem-card .poem-match mark {
+  padding: 0 1px;
+  background: var(--color-accent-wash);
+  color: var(--color-ink);
+}
+.select-sort { max-width: 18rem; }
 
 /* ============ 工作台 ============ */
 
@@ -868,6 +897,33 @@ select {
 .study-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
 .poem-switch { margin-bottom: var(--space-sm); }
 
+/* 固定工具条：顶部按顶栏实际高度让位，长文言文滚动时仍能随手换句 */
+.study-toolbar-wrap {
+  position: sticky;
+  top: var(--app-header-height, 0px);
+  z-index: var(--z-raised);
+  margin: 0 calc(var(--app-pad) * -1) var(--space-md);
+  padding: var(--space-xs) var(--app-pad);
+  background: var(--color-paper);
+  border-bottom: 1px solid var(--color-rule);
+}
+.study-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  margin-top: var(--space-2xs);
+  color: var(--color-ink-3);
+  font-size: var(--text-md);
+}
+.toolbar-sep {
+  width: 1px;
+  height: 1.35em;
+  margin: 0 var(--space-3xs);
+  background: var(--color-rule-2);
+}
+
 .poem-head {
   padding-bottom: var(--space-sm);
   margin-bottom: var(--space-md);
@@ -892,6 +948,25 @@ select {
   line-height: 2.05;
   color: var(--color-ink);
 }
+
+/* 字号三档：只作用于诗文正文，标题 / 界面的字号不变 */
+body.font-sm .poem-body { font-size: 1rem; }
+body.font-lg .poem-body { font-size: 1.3rem; }
+
+/* 逐句背 / 只看重点 / 关闭译文：三个独立开关，默认全文模式不受影响 */
+.poem-body.is-recite .line-item:not(.is-active) { display: none; }
+.poem-body.is-recite .line-item.is-active { border-color: var(--color-rule-2); background: var(--color-paper-2); }
+.poem-body.is-focus-only .line-item.is-nonfocus { display: none; }
+.poem-body.hide-translation .line-zh { display: none; }
+
+/* 专注模式：把页面收成一张纸，只留诗文与固定工具条；右上角工具条里仍可退出 */
+body.focus-reading .app-header,
+body.focus-reading .app-footer,
+body.focus-reading .brand-seal,
+body.focus-reading .brand-foot { display: none !important; }
+body.focus-reading .app { max-width: 46rem; }
+body.focus-reading .study-toolbar-wrap { top: 0; }
+body.focus-reading .poem-body { max-width: 30em; }
 
 .line-item {
   display: grid;
@@ -1077,6 +1152,17 @@ select {
 }
 .question-text .blank-unit { color: var(--color-ink-3); letter-spacing: 0.16em; }
 .question-text .context-hint { color: var(--color-ink-3); }
+.question-text .context-hint + .translation-prompt { margin-top: var(--space-2xs); }
+.translation-prompt {
+  display: block;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 2px solid var(--color-accent);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  line-height: 1.85;
+}
 
 .btn-eye {
   flex: none;
@@ -1138,6 +1224,70 @@ select {
 }
 .progress-item .pi-main { min-width: 0; }
 .progress-item .pi-sub { color: var(--color-ink-3); font-size: var(--text-md); }
+.pi-actions { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+
+/* 近 60 天热力图：10 列 × 6 行，颜色只用朱砂的四级浓度 */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 30rem;
+  margin-top: var(--space-sm);
+}
+.heat-cell {
+  display: block;
+  aspect-ratio: 1;
+  border: 1px solid var(--color-rule);
+  border-radius: 1px;
+  background: var(--color-paper-3);
+}
+.heat-cell[data-level='1'] { background: var(--heat-1); border-color: var(--heat-1); }
+.heat-cell[data-level='2'] { background: var(--heat-2); border-color: var(--heat-2); }
+.heat-cell[data-level='3'] { background: var(--heat-3); border-color: var(--heat-3); }
+.heat-cell[data-level='4'] { background: var(--heat-4); border-color: var(--heat-4); }
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--space-xs);
+}
+.heat-legend .heat-cell { width: 0.8rem; height: 0.8rem; aspect-ratio: auto; }
+
+/* 题目级错题：篇目汇总一行，展开后才看到具体句子 */
+.wrong-group { border-bottom: 1px solid var(--color-rule); }
+.wrong-group:last-child { border-bottom: 0; }
+.wrong-details { padding: 0 var(--space-2xs) var(--space-xs); }
+.wrong-details summary {
+  min-height: 2.25rem;
+  padding: var(--space-2xs) 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.wrong-list { display: grid; gap: var(--space-2xs); padding: var(--space-2xs) 0 var(--space-xs); }
+.wrong-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2xs) var(--space-sm);
+  align-items: center;
+  padding: var(--space-xs);
+  border-left: 2px solid var(--color-bad);
+  background: var(--color-paper-2);
+}
+.wrong-preview { min-width: 0; color: var(--color-ink-2); font-family: var(--font-verse); overflow-wrap: anywhere; }
+.wrong-item .btn { grid-column: 2; }
+.wrong-item .tiny { grid-column: 1 / -1; }
+
+/* 文件导入按钮：input 透明覆盖在按钮上，保持键盘可达 */
+.file-btn { position: relative; overflow: hidden; }
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 
 .danger-zone {
   margin-top: var(--space-lg);
@@ -1194,6 +1344,22 @@ select {
 
 @media (max-width: 39.999rem) {
   .mode-option .mode-desc { display: none; }
+  .study-toolbar .btn { min-height: 2.4rem; }
+  /* 手机上工具条只占一行：横向滑动，避免固定工具条吃掉半屏 */
+  .study-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .study-toolbar .btn,
+  .study-toolbar .toolbar-sep { flex: 0 0 auto; }
+  .study-status { margin-top: 0; }
+  .wrong-item { grid-template-columns: minmax(0, 1fr); }
+  .wrong-item .btn { grid-column: 1; justify-self: start; }
+  .print-field { min-width: 100%; }
+  .heatmap { gap: 3px; }
 }
 
 @media (min-width: 40rem) {
@@ -1222,10 +1388,107 @@ select {
   .chip { min-height: var(--tap-min); }
 }
 
+/* ============ 打印默写纸 ============ */
+
+.print-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-sm) var(--space-lg);
+  margin-top: var(--space-sm);
+}
+.print-field { display: grid; gap: var(--space-2xs); min-width: 10rem; }
+.print-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-height: var(--tap-min);
+  color: var(--color-ink-2);
+  font-size: var(--text-base);
+}
+.print-sheet {
+  max-width: 48rem;
+  margin: var(--space-lg) auto 0;
+  padding: clamp(1.2rem, 4vw, 2.6rem);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-xs);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+.ws-kicker { margin: 0; color: var(--color-ink-3); font-size: var(--text-md); letter-spacing: 0.12em; }
+.ws-head h1 {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  letter-spacing: 0.04em;
+}
+.ws-info { margin: var(--space-2xs) 0 0; color: var(--color-ink-2); font-size: var(--text-base); }
+.ws-info-sub { color: var(--color-ink-3); font-size: var(--text-md); }
+.ws-list { margin-top: var(--space-lg); }
+.ws-question {
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--color-rule);
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.ws-q-head { display: flex; gap: var(--space-xs); align-items: baseline; }
+.ws-q-num { color: var(--color-accent); font-family: var(--font-display); font-size: var(--text-lg); font-weight: 700; }
+.ws-q-meta { color: var(--color-ink-3); font-size: var(--text-md); }
+.ws-mode { color: var(--color-ink-3); }
+.ws-q-prompt {
+  margin-top: var(--space-xs);
+  color: var(--color-ink);
+  font-family: var(--font-verse);
+  font-size: 1.125rem;
+  line-height: 2;
+}
+.ws-q-prompt .blank-unit { color: var(--color-ink-3); letter-spacing: 0.16em; }
+.ws-q-prompt .translation-prompt {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-base);
+}
+.ws-write {
+  height: calc(var(--ws-lines, 2) * 2.35em);
+  margin-top: var(--space-xs);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(2.35em - 1px),
+    var(--color-rule) calc(2.35em - 1px),
+    var(--color-rule) 2.35em
+  );
+}
+.ws-answers {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
+  border-top: 2px solid var(--color-ink);
+  break-before: page;
+  page-break-before: always;
+}
+.ws-answers h2 { margin: 0 0 var(--space-sm); font-family: var(--font-display); font-size: var(--text-xl); }
+.ws-answers ol { margin: 0; padding-left: 1.4em; }
+.ws-answers li { margin-top: var(--space-2xs); line-height: 1.85; }
+.ws-answer-title { color: var(--color-ink-3); }
+.ws-foot { margin-top: var(--space-lg); padding-top: var(--space-xs); border-top: 1px solid var(--color-rule); color: var(--color-ink-3); font-size: var(--text-sm); }
+.ws-empty { margin-top: var(--space-lg); color: var(--color-ink-3); }
+
 @media print {
-  .app-header, .app-footer, .btn, .btn-eye, .study-toolbar, .brand-seal { display: none !important; }
+  .app-header, .app-footer, .btn, .btn-eye, .study-toolbar-wrap, .study-toolbar, .brand-seal, .print-toolbar, .toast, .skip-link { display: none !important; }
   .answer-wrapper { grid-template-rows: 1fr; opacity: 1; }
   body::before { display: none; }
+  body { background: #fff; }
+  .app { max-width: none; padding: 0; }
+  .print-sheet {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+  }
+  .ws-answers { break-before: page; page-break-before: always; }
+  .ws-question { break-inside: avoid; page-break-inside: avoid; }
+  @page { size: A4; margin: 16mm; }
 }
 
 /* __BRAND_CSS__ */

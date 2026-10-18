@@ -26,6 +26,7 @@ const SCRIPT_ORDER = [
   'js/storage.js',
   'js/study.js',
   'js/quiz.js',
+  'js/worksheet.js',
 ];
 
 function makeLocalStorage(seed) {
@@ -113,7 +114,7 @@ function section(name) {
 
 const indexHtml = readFileSync(join(root, 'index.html'), 'utf8');
 const htmlScripts = [...indexHtml.matchAll(/<script src="([^"]+)"><\/script>/g)].map((match) => match[1]);
-const expectedScripts = SCRIPT_ORDER.slice(0, 2).concat(['js/brand.js']).concat(SCRIPT_ORDER.slice(2)).concat(['js/app.js']);
+const expectedScripts = SCRIPT_ORDER.slice(0, 2).concat(['js/brand.js']).concat(SCRIPT_ORDER.slice(2)).concat(['js/app.js', 'js/pwa.js']);
 eq('index.html 脚本顺序与依赖链一致', htmlScripts.join(','), expectedScripts.join(','));
 eq('品牌层在数据层之前加载', htmlScripts.indexOf('js/brand.js'), 2);
 
@@ -402,7 +403,7 @@ check('每个原始 id 都能在数据库层查到', rawEntries.every(({ poem })
   rawEntries.filter(({ poem }) => !DB.byId(poem.id)).map(({ poem }) => poem.id).slice(0, 5).join(','));
 eq('初中学段数量', DB.byStage('初中').length, Junior.length);
 eq('高中学段数量', DB.byStage('高中').length, Senior.length);
-eq('题库总数', all.length, 184);
+eq('题库总数', all.length, 199);
 eq('课标推荐篇目数量', DB.query({ onlyRequired: true }).length, 132);
 check('所有篇目都有正文', all.every((p) => p.text && p.text.length > 4));
 check('所有篇目都有作者与朝代', all.every((p) => p.author && p.dynasty));
@@ -431,12 +432,12 @@ check('来源都能在筛选器里找到', all.every((p) => Meta.sourceTypes.som
 check('搜索李白可命中', DB.query({ stage: '高中', keyword: '李白' }).length >= 3);
 check('搜索篇名可命中', DB.query({ stage: '初中', keyword: '观沧海' }).length === 1);
 check('按课程模块筛选（高中·必修）', DB.query({ stage: '高中', grade: '必修' }).length === 27);
-check('按年级筛选（初中·六年级）', DB.query({ stage: '初中', grade: '六年级' }).length === 6);
+check('按年级筛选（初中·六年级）', DB.query({ stage: '初中', grade: '六年级' }).length === 10);
 check('课程模块支持多选（必修 27 + 选修 20 = 47）',
   DB.query({ stage: '高中', grade: ['必修', '选修'] }).length === 47,
   String(DB.query({ stage: '高中', grade: ['必修', '选修'] }).length));
-check('年级支持多选（六年级 + 七年级 = 39）',
-  DB.query({ stage: '初中', grade: ['六年级', '七年级'] }).length === 39,
+check('年级支持多选（六年级 + 七年级 = 47）',
+  DB.query({ stage: '初中', grade: ['六年级', '七年级'] }).length === 47,
   String(DB.query({ stage: '初中', grade: ['六年级', '七年级'] }).length));
 check('跨年级篇目在两个年级都能筛到（《孟子》三则）',
   DB.query({ stage: '初中', grade: '八年级' }).some((p) => p.id === 'meng-zi-san-ze') &&
@@ -446,7 +447,7 @@ check('跨年级篇目只出现一次（去重后仍是 110 篇）',
   DB.query({ stage: '初中', grade: ['八年级', '九年级'] }).length);
 check('空数组 = 不筛选年级', DB.query({ stage: '高中', grade: [] }).length === 74);
 check('按体裁筛选', DB.query({ stage: '初中', genre: '词' }).length > 5);
-check('按来源筛选', DB.query({ stage: '初中', sourceType: '上海地区' }).length === 6);
+check('按来源筛选', DB.query({ stage: '初中', sourceType: '上海地区' }).length === 10);
 check('体裁支持多选（诗 + 词 = 两者之和）',
   DB.query({ stage: '初中', genre: ['诗', '词'] }).length ===
   DB.query({ stage: '初中', genre: '诗' }).length + DB.query({ stage: '初中', genre: '词' }).length,
@@ -482,6 +483,12 @@ check('isValidDayKey 拒绝非法日期',
   !U.isValidDayKey('') && !U.isValidDayKey('x') && !U.isValidDayKey('1899-12-31') && !U.isValidDayKey('2101-01-01') &&
   !U.isValidDayKey('2023-02-29'));
 eq('sortDayKeys 过滤非法值并按日期升序', U.sortDayKeys(['2026-09-13', 'x', '2026-01-05', '2026-13-01', '2026-09-13']).join(','), '2026-01-05,2026-09-13');
+eq('addDaysKey 跨月', U.addDaysKey('2026-01-31', 1), '2026-02-01');
+eq('addDaysKey 跨年 / 闰年', U.addDaysKey('2024-02-28', 1), '2024-02-29');
+eq('addDaysKey 向前跨年', U.addDaysKey('2027-01-01', -1), '2026-12-31');
+eq('daysBetweenKeys 计算日历天数', U.daysBetweenKeys('2026-01-31', '2026-02-02'), 2);
+check('daysBetweenKeys 非法输入返回 NaN', Number.isNaN(U.daysBetweenKeys('x', '2026-02-02')));
+check('isDueDay 判断到期', U.isDueDay('2026-09-13', '2026-09-13') && U.isDueDay('2026-09-12', '2026-09-13') && !U.isDueDay('2026-09-14', '2026-09-13'));
 
 const utilsPath = join(root, 'js', 'utils.js');
 function todayKeyInTz(tz, iso) {
@@ -563,10 +570,10 @@ check('validate 能识破不变量错误',
   Storage.validate(Object.assign(Storage.defaults(), { quizStats: { total: 1, correct: 5, wrong: 0, byPoem: {} } })).length > 0);
 
 /* 题型白名单 */
-eq('storage 白名单与 quiz 的 6 种题型一致', Storage.MODE_KEYS.join(','), Quiz.MODES.map((mode) => mode.key).join(','));
+eq('storage 白名单与 quiz 的 7 种题型一致', Storage.MODE_KEYS.join(','), Quiz.MODES.map((mode) => mode.key).join(','));
 eq('全部非法的 modes 被清空（= 随机组合）', Storage.sanitize({ prefs: { modes: ['abc', '123', 'unknown-mode'] } }).prefs.modes.length, 0);
 eq('合法 + 非法混合只保留合法值', Storage.sanitize({ prefs: { modes: ['abc', 'full', 'next', 'full'] } }).prefs.modes.join(','), 'full,next');
-eq('合法的 modes 原样保留', Storage.sanitize({ prefs: { modes: ['blank-full', 'next', 'prev', 'keyword', 'mixed', 'full'] } }).prefs.modes.length, 6);
+eq('合法的 modes 原样保留', Storage.sanitize({ prefs: { modes: ['blank-full', 'next', 'prev', 'keyword', 'mixed', 'full', 'translation'] } }).prefs.modes.length, 7);
 check('非法 modes 不会让题目数量变成 0',
   Quiz.__internals.pickQuestions([DB.byId('guan-cang-hai')], { count: 5, modes: ['abc', '123'] }).length > 0);
 
@@ -686,6 +693,49 @@ eq('手动加入错题本', store.getState().wrongBook[0].count, 1);
 store.removeWrong('guan-ju');
 eq('手动移除错题本', store.getState().wrongBook.length, 0);
 
+/* 题目级错题：同一篇目不同句子的记录互不覆盖，答对只移除当前题 */
+const itemStore = loadFiles(makeSandbox(), SCRIPT_ORDER).PoetryStorage;
+itemStore.reset();
+itemStore.recordQuiz('guan-ju', false, 'next', { key: 'guan-ju|next|0|0', index: 0, pairIndex: 0 });
+itemStore.recordQuiz('guan-ju', false, 'full', { key: 'guan-ju|full|1|s', index: 1, pairIndex: null });
+eq('题目级错题记录两条', itemStore.getState().wrongItems.length, 2);
+eq('篇目级汇总累计两次', itemStore.getState().wrongBook[0].count, 2);
+itemStore.recordQuiz('guan-ju', true, 'next', { key: 'guan-ju|next|0|0', index: 0, pairIndex: 0 });
+eq('答对只移除当前题', itemStore.getState().wrongItems.length, 1);
+eq('答对后错题本仍保留另一句', itemStore.getState().wrongBook[0].count, 1);
+eq('保留的是另一句的 key', itemStore.getState().wrongItems[0].key, 'guan-ju|full|1|s');
+itemStore.recordQuiz('guan-ju', true, 'full', { key: 'guan-ju|full|1|s', index: 1, pairIndex: null });
+eq('最后一条错题也被移除', itemStore.getState().wrongItems.length, 0);
+check('题目级错题生命周期后仍通过校验', Storage.validate(itemStore.getState()).length === 0, Storage.validate(itemStore.getState()).join('; '));
+
+itemStore.patch({ review: { 'guan-ju': { level: 0, due: U.todayKey(), lastTime: 1 } } });
+eq('到期复习能取到今天该复习的篇目', itemStore.duePoemIds().join(','), 'guan-ju');
+eq('复习条目被规范化', itemStore.reviewFor('guan-ju').level, 0);
+
+/* 同一篇目同一天只升一级：避免一组题把间隔直接推到 30 天 */
+const srsStore = loadFiles(makeSandbox(), SCRIPT_ORDER).PoetryStorage;
+srsStore.reset();
+srsStore.patch({
+  review: {
+    'guan-ju': { level: 1, due: U.addDaysKey(U.todayKey(), -1), lastTime: Date.now() - 86400000 },
+  },
+});
+srsStore.recordQuiz('guan-ju', true, 'full');
+eq('隔天答对升一级', srsStore.reviewFor('guan-ju').level, 2);
+srsStore.recordQuiz('guan-ju', true, 'full');
+eq('同一天连续答对不重复升级', srsStore.reviewFor('guan-ju').level, 2);
+srsStore.recordQuiz('guan-ju', false, 'full');
+eq('答错回到第 0 级', srsStore.reviewFor('guan-ju').level, 0);
+itemStore.updatePrefs({ fontScale: 2, showTranslation: false });
+eq('阅读偏好字号被保存', itemStore.getState().prefs.fontScale, 2);
+eq('阅读偏好译文开关被保存', itemStore.getState().prefs.showTranslation, false);
+check('阅读偏好修改后仍通过校验', Storage.validate(itemStore.getState()).length === 0, Storage.validate(itemStore.getState()).join('; '));
+
+const exported = itemStore.exportData();
+check('导出数据包含 schema 与 state', exported.schema === 2 && !!exported.state && exported.app === 'hison-poetry-recite');
+const imported = itemStore.importData(exported);
+check('导入导出往返成功', imported.ok && itemStore.getState().wrongItems.length === 0);
+
 store.touchRecent('guan-ju');
 store.touchRecent('jian-jia');
 eq('最近学习：最新的排在最前', store.getState().recents[0].id, 'jian-jia');
@@ -700,7 +750,7 @@ eq('patch 会过滤非法题型', store.getState().prefs.modes.join(','), 'full'
 
 /* ========== 9. 出题逻辑 ========== */
 
-const { unitsOf, buildQuestion, allCandidates, pickQuestions, resetLastBatch } = Quiz.__internals;
+const { unitsOf, buildQuestion, allCandidates, pickQuestions, questionFilterFn, resetLastBatch } = Quiz.__internals;
 const guanCangHai = DB.byId('guan-cang-hai');
 const jingNv = DB.byId('jing-nv');
 const shiWu = DB.byId('shi-wu-cong-jun-zheng');
@@ -723,6 +773,18 @@ check('整句挖空保留方框提示', buildQuestion(guanCangHai, unitsOf(guanC
 check('关键词题型保留句首字', buildQuestion(guanCangHai, unitsOf(guanCangHai)[0], 'keyword').promptHtml.indexOf('东') !== -1);
 const errataUnit = unitsOf(shiWu).find((unit) => /狗窦|雉|旅葵|羹/.test(unit.sentence));
 check('随机挖空会命中易错字提示', !!errataUnit && buildQuestion(shiWu, errataUnit, 'mixed').hint.indexOf('易错字') !== -1);
+
+/* 看译文写原文：译文来自题库逐句翻译，答案仍是原文 */
+const sentenceUnit = unitsOf(guanCangHai).find((unit) => unit.kind === 'sentence');
+const translationQuestion = buildQuestion(guanCangHai, sentenceUnit, 'translation');
+const firstTranslation = guanCangHai.translations[sentenceUnit.index];
+check('看译文写原文能生成题目', !!translationQuestion && translationQuestion.promptHtml.indexOf(U.escapeHtml(firstTranslation)) !== -1);
+eq('看译文写原文的答案仍是原文', translationQuestion.answerText, sentenceUnit.sentence);
+check('看译文写原文的 key 可定位到句子', /^guan-cang-hai\|translation\|\d+\|s$/.test(translationQuestion.key));
+eq('重点句范围只出 examFocus 句', allCandidates([guanCangHai], ['full'], questionFilterFn('exam')).length, guanCangHai.examFocus.length);
+check('名句范围只出名句句', allCandidates([guanCangHai], ['full'], questionFilterFn('name')).length > 0);
+const preferred = pickQuestions([guanCangHai], { count: 3, modes: ['full'], preferKeys: ['guan-cang-hai|full|0|s'] });
+eq('错题原题优先排在最前', preferred[0].key, 'guan-cang-hai|full|0|s');
 
 const singlePoemCandidates = allCandidates([guanCangHai], allModeKeys).length;
 check('候选题目数量大于 0', singlePoemCandidates > 0);
@@ -778,7 +840,7 @@ section('出题逻辑');
 /* ========== 10. 纯离线 & 版本一致性 ========== */
 
 const runtimeFiles = [
-  'js/utils.js', 'js/brand.js', 'js/storage.js', 'js/study.js', 'js/quiz.js', 'js/app.js',
+  'js/utils.js', 'js/brand.js', 'js/storage.js', 'js/study.js', 'js/quiz.js', 'js/worksheet.js', 'js/app.js', 'js/pwa.js',
   'data/metadata.js', 'data/database.js', 'assets/styles.css', 'index.html',
 ];
 const runtimeSources = runtimeFiles.map((file) => [file, readFileSync(join(root, file), 'utf8')]);

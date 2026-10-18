@@ -239,6 +239,34 @@
     return map;
   }
 
+  /**
+   * 名句标记：返回 { 句子下标: true }。
+   * 数据里的「名句」提示可能是单句、跨句或句中片段，这里用去标点后的子串关系判断：
+   * 句子包含提示，或提示包含整句，都算这一句和名句有关。
+   */
+  function nameSentenceMap(poem) {
+    var sentences = Utils.splitSentences(poem ? poem.text : '');
+    var names = Utils.toArray(poem ? poem.highlights : [])
+      .filter(function (item) {
+        return item && (item.type === '名句' || item.type === '关键词') && typeof item.text === 'string';
+      })
+      .map(function (item) {
+        return Utils.normalizeText(item.text);
+      })
+      .filter(Boolean);
+    var map = Object.create(null);
+    if (!names.length) return map;
+    sentences.forEach(function (sentence, index) {
+      var text = Utils.normalizeText(sentence);
+      if (!text) return;
+      var hit = names.some(function (name) {
+        return name.indexOf(text) !== -1 || text.indexOf(name) !== -1;
+      });
+      if (hit) map[index] = true;
+    });
+    return map;
+  }
+
   function highlightMap(poem) {
     var map = Object.create(null);
     Utils.toArray(poem.highlights).forEach(function (item) {
@@ -265,6 +293,7 @@
     highlightMap: highlightMap,
     translationLines: translationLines,
     examFocusMap: examFocusMap,
+    nameSentenceMap: nameSentenceMap,
     stats: function (stage) {
       var list = stage ? byStage(stage) : poems.slice();
       return {

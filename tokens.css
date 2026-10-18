@@ -25,6 +25,10 @@
   --color-accent-ink: oklch(97% 0.012 85);
   --color-accent-wash: oklch(93.5% 0.035 30);
   --color-focus: oklch(48% 0.17 28);
+  --heat-1: oklch(91% 0.04 30);
+  --heat-2: oklch(84% 0.08 30);
+  --heat-3: oklch(72% 0.12 30);
+  --heat-4: oklch(55% 0.16 28);
 
   /* ---- 颜色 · 语义（对 = 竹青 / 错 = 绛 / 提示 = 赭） ---- */
   --color-ok: oklch(46% 0.095 155);
@@ -98,6 +102,10 @@ html[data-theme='dark'] {
   --color-accent-ink: oklch(18% 0.02 30);
   --color-accent-wash: oklch(26% 0.05 28);
   --color-focus: oklch(72% 0.15 30);
+  --heat-1: oklch(30% 0.035 30);
+  --heat-2: oklch(38% 0.06 30);
+  --heat-3: oklch(50% 0.09 30);
+  --heat-4: oklch(66% 0.14 30);
   --color-ok: oklch(74% 0.10 155);
   --color-ok-ink: oklch(18% 0.02 155);
   --color-ok-wash: oklch(26% 0.035 155);

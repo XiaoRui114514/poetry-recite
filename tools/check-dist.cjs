@@ -106,7 +106,10 @@ for (const target of targets) {
 
   /* --- 2) 单文件版没有本地引用 --- */
   const srcRefs = [...bundle.html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => match[1]);
-  const linkRefs = [...bundle.html.matchAll(/<link[^>]+href="([^"]+)"/g)].map((match) => match[1]);
+  // data: 是内联 favicon，不算外部样式；单文件里不应再有 manifest / 本地 CSS 链接
+  const linkRefs = [...bundle.html.matchAll(/<link[^>]+href="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter((ref) => !ref.startsWith('data:') && !ref.startsWith('#'));
   if (srcRefs.length) fail(`${target} 仍有外部脚本引用：` + srcRefs.join(', '));
   if (linkRefs.length) fail(`${target} 仍有外部样式引用：` + linkRefs.join(', '));
 
