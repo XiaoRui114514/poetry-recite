@@ -54,10 +54,49 @@
     }
   }
 
-  function writingLines(answerText) {
+  function writingLines(answerText, mode) {
     var length = Utils.normalizeText(answerText || '').length;
-    var lines = Utils.clamp(Math.ceil(length / 18), 2, 5);
+    /* 有挖空的题型，答案直接写在句中的下划线上，下面只留一行备写；
+       整句默写 / 看译文写原文没有可见下划线，才需要多行书写空间。 */
+    var lines = mode === 'full' || mode === 'translation'
+      ? Utils.clamp(Math.ceil(length / 18), 2, 5)
+      : 1;
     return '<div class="ws-write" style="--ws-lines:' + lines + '"></div>';
+  }
+
+  /** 打印纸上的挖空改成下划线，比方框更像“填空纸”，截图 / 打印都更干净 */
+  function blankMark(run) {
+    return '<span class="ws-blank" style="--ws-chars:' + String(run || '').length + '"></span>';
+  }
+
+  function printPrompt(html) {
+    var src = String(html == null ? '' : html);
+    // 先把 quiz.js 生成的空白方框整块替换，再兜底处理 keyword 题型里的裸 □
+    src = src.replace(/<span class="blank-unit">(□+)<\/span>/g, function (_, run) {
+      return blankMark(run);
+    });
+    src = src.replace(/□+/g, function (run) {
+      return blankMark(run);
+    });
+    return src;
+  }
+
+  /**
+   * 整句挖空 / 整句默写没有可见原句，补上一句 / 下一句作为语境，
+   * 否则《梦游天姥吟留别》这种长诗里的“□□□□□□□？”根本无法定位。
+   */
+  function contextHtml(question) {
+    if (!question || (question.mode !== 'blank-full' && question.mode !== 'full')) return '';
+    var poem = DB.byId(question.poemId);
+    if (!poem) return '';
+    var sentences = Utils.splitSentences(poem.text);
+    var index = question.sentenceIndex;
+    if (typeof index !== 'number' || index < 0 || index >= sentences.length) return '';
+    var parts = [];
+    if (index > 0) parts.push('<span><b>上一句</b>' + Utils.escapeHtml(sentences[index - 1]) + '</span>');
+    if (index + 1 < sentences.length) parts.push('<span><b>下一句</b>' + Utils.escapeHtml(sentences[index + 1]) + '</span>');
+    if (!parts.length) return '';
+    return '<div class="ws-context">' + parts.join('') + '</div>';
   }
 
   function renderQuestions() {
@@ -66,13 +105,16 @@
     }
     return state.questions
       .map(function (question, index) {
+        var sentenceNo = typeof question.sentenceIndex === 'number' ? ' · 第 ' + (question.sentenceIndex + 1) + ' 句' : '';
         var meta = '《' + Utils.escapeHtml(question.poemTitle) + '》 · ' + Utils.escapeHtml(question.poemAuthor) +
-          ' · <span class="ws-mode">' + Utils.escapeHtml(modeLabel(question.mode)) + '</span>';
+          ' · <span class="ws-mode">' + Utils.escapeHtml(modeLabel(question.mode)) + '</span>' +
+          '<span class="ws-sentence-no">' + Utils.escapeHtml(sentenceNo) + '</span>';
         return (
           '<article class="ws-question">' +
             '<div class="ws-q-head"><span class="ws-q-num">' + (index + 1) + '.</span><span class="ws-q-meta">' + meta + '</span></div>' +
-            '<div class="ws-q-prompt">' + question.promptHtml + '</div>' +
-            writingLines(question.answerText) +
+            contextHtml(question) +
+            '<div class="ws-q-prompt">' + printPrompt(question.promptHtml) + '</div>' +
+            writingLines(question.answerText, question.mode) +
           '</article>'
         );
       })
@@ -113,6 +155,84 @@
     );
   }
 
+  /** 收集当前页面的样式，供“干净打印窗口”复用，避免纸张样式丢失 */
+  function collectCss() {
+    var out = [];
+    var sheets = document.styleSheets || [];
+    for (var i = 0; i < sheets.length; i += 1) {
+      var rules = null;
+      try {
+        rules = sheets[i].cssRules;
+      } catch (err) {
+        rules = null;
+      }
+      if (!rules) continue;
+      for (var j = 0; j < rules.length; j += 1) {
+        try {
+          out.push(rules[j].cssText);
+        } catch (err) {
+          /* 忽略无法读取的规则 */
+        }
+      }
+    }
+    return out.join('\n');
+  }
+
+  function standaloneCss() {
+    return [
+      'html, body { margin: 0; padding: 0; background: #fff; }',
+      'body { color: #1c1a17; }',
+      '.print-sheet { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: #fff; }',
+      '.print-window-note { display: none; }',
+      '@page { size: A4; margin: 16mm; }',
+    ].join('\n');
+  }
+
+  /**
+   * 打开一个只包含练习纸的新窗口再打印：
+   * 页面上的浏览器插件 / 浮层 / 扩展工具栏不会进入新窗口，避免被一起截进打印预览。
+   * 若浏览器拦截弹窗，则退回直接打印当前页（此时仍有 @media print 的可见性隔离兜底）。
+   */
+  function openPrintWindow() {
+    var win = null;
+    try {
+      win = global.open('', '_blank', 'width=920,height=1200');
+    } catch (err) {
+      win = null;
+    }
+    if (!win) {
+      if (global.print) global.print();
+      return;
+    }
+    var html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>古诗文默写练习</title>' +
+      '<style>' + collectCss() + '\n' + standaloneCss() + '</style>' +
+      '</head><body class="print-window">' + sheetHtml() + '</body></html>';
+    try {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (err) {
+      try { win.close(); } catch (closeErr) { /* 忽略 */ }
+      if (global.print) global.print();
+      return;
+    }
+    win.focus();
+    var trigger = function () {
+      try {
+        win.print();
+      } catch (err) {
+        /* 某些浏览器不允许脚本打印，保留窗口让用户手动 Ctrl+P */
+      }
+    };
+    if (win.document.readyState === 'complete') setTimeout(trigger, 250);
+    else win.addEventListener('load', function () { setTimeout(trigger, 250); });
+    win.onafterprint = function () {
+      try { win.close(); } catch (err) { /* 忽略 */ }
+    };
+  }
+
   function settingsHtml() {
     var modeOptions = modes()
       .map(function (mode) {
@@ -127,7 +247,7 @@
     return (
       '<section class="card print-toolbar">' +
         '<h2 class="section-title">打印默写纸</h2>' +
-        '<p class="section-desc">从当前已选的 ' + state.list.length + ' 篇里生成一张 A4 练习纸，答案可以单独成页；用浏览器打印即可，也可以“另存为 PDF”。</p>' +
+        '<p class="section-desc">从当前已选的 ' + state.list.length + ' 篇里生成一张 A4 练习纸，答案可以单独成页；点打印会打开只含练习纸的干净窗口，避免浏览器插件被一起截进打印预览。</p>' +
         '<div class="print-options">' +
           '<label class="print-field"><span class="filter-label">题型</span><select id="printMode">' + modeOptions + '</select></label>' +
           '<label class="print-field"><span class="filter-label">题量</span><select id="printCount">' + countOptions + '</select></label>' +
@@ -137,7 +257,7 @@
         '<div class="select-actions" style="margin-top:0.9rem;">' +
           '<button type="button" class="btn btn-primary" data-print-action="print">打印 / 另存 PDF</button>' +
           '<button type="button" class="btn" data-print-action="regenerate">换一组</button>' +
-          '<span class="tiny muted">打印时浏览器会自动隐藏按钮和设置区。</span>' +
+          '<span class="tiny muted">会打开干净打印窗口；浏览器的“页眉和页脚”可在打印设置里关闭。</span>' +
         '</div>' +
         (state.notice ? '<p class="tiny muted" role="status">' + Utils.escapeHtml(state.notice) + '</p>' : '') +
       '</section>'
@@ -159,7 +279,7 @@
       if (!button) return;
       var action = button.getAttribute('data-print-action');
       if (action === 'print') {
-        if (global.print) global.print();
+        openPrintWindow();
       } else if (action === 'regenerate') {
         generate();
         render(root);

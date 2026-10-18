@@ -6,7 +6,7 @@
    发布新版本时把 CACHE 里的版本号 +1，旧缓存会在 activate 时清掉。 */
 'use strict';
 
-var CACHE = 'poetry-recite-v1.5.0';
+var CACHE = 'poetry-recite-v1.5.1';
 var ASSETS = [
   './',
   './index.html',

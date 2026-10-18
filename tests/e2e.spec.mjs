@@ -1670,6 +1670,10 @@ test('打印默写纸：题目、答案页、重点句与题型切换', async ({
   const sentenceCount = await page.evaluate(() => window.PoetryUtils.splitSentences(window.PoetryDatabase.byId('guan-cang-hai').text).length);
   await expect(page.locator('.ws-question')).toHaveCount(sentenceCount);
   await expect(page.locator('.ws-answers')).toHaveCount(1);
+  // 打印纸用下划线填空，而不是方框；整句挖空带上一句 / 下一句语境
+  expect(await page.locator('.ws-q-prompt .ws-blank').count()).toBeGreaterThan(0);
+  expect(await page.locator('.ws-q-prompt').first().innerText()).not.toContain('□');
+  expect(await page.locator('.ws-context').count()).toBeGreaterThan(0);
 
   await page.uncheck('#printAnswers');
   await expect(page.locator('.ws-answers')).toHaveCount(0);
@@ -1681,6 +1685,31 @@ test('打印默写纸：题目、答案页、重点句与题型切换', async ({
   const printState = await page.evaluate(() => window.PoetryWorksheet.currentState());
   expect(printState.focusOnly).toBe(true);
   expect(printState.mode).toBe('translation');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('打印按钮打开只含练习纸的干净窗口，不带上页面插件与导航', async ({ page }) => {
+  const errors = watchErrors(page);
+  // 让新窗口里的 print() 不真的弹打印对话框，方便断言窗口内容
+  await page.context().addInitScript(() => {
+    window.print = function () {};
+  });
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-action="select-none"]');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="print"]');
+
+  const popupPromise = page.waitForEvent('popup');
+  await page.click('[data-print-action="print"]');
+  const popup = await popupPromise;
+  await expect(popup.locator('.print-sheet')).toBeVisible();
+  await expect(popup.locator('.app-header')).toHaveCount(0);
+  await expect(popup.locator('.print-toolbar')).toHaveCount(0);
+  await expect(popup.locator('.ws-blank').first()).toBeVisible();
+  await expect(popup.locator('.ws-context').first()).toBeVisible();
+  await popup.close();
   expect(errors, errors.join('\n')).toEqual([]);
 });
 

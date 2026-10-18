@@ -1,6 +1,6 @@
 {
   "name": "hison-poetry-recite",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "description": "上海初高古诗文背诵 · 初高中古诗文背诵学习系统（纯前端静态页面，Hison 制作）",
   "scripts": {
