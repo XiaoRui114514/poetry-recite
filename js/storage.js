@@ -843,9 +843,23 @@
 
   /** 导入学习数据：先 sanitize / prune，再整体替换本机数据；返回 { ok, error } */
   function importData(payload) {
-    var raw = payload && typeof payload === 'object' && payload.state ? payload.state : payload;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    if (!isPlainObject(payload)) {
       return { ok: false, error: '文件里没有可识别的学习数据。' };
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'app') && payload.app !== 'hison-poetry-recite') {
+      return { ok: false, error: '这不是古诗文背诵的学习数据备份。' };
+    }
+    var raw = Object.prototype.hasOwnProperty.call(payload, 'state') ? payload.state : payload;
+    // sanitize 的容错不能用于识别备份：{} 和其它应用的 JSON 会被补成空白状态，覆盖现有进度。
+    // v1/v2 原始数据均含这两个核心字段；合法的空白备份也包含它们。
+    if (!isPlainObject(raw) || !Array.isArray(raw.selectedIds) || !isPlainObject(raw.quizStats)) {
+      return { ok: false, error: '文件里没有可识别的学习数据。' };
+    }
+    var versions = [payload.schema, raw.version];
+    if (versions.some(function (version) {
+      return version != null && (!Number.isInteger(version) || version < 1 || version > SCHEMA_VERSION);
+    })) {
+      return { ok: false, error: '备份的数据版本不受当前页面支持，请使用兼容版本导入。' };
     }
     var next = sanitize(raw);
     pruneUnknownIds(next);

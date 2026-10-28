@@ -8650,9 +8650,23 @@ body.focus-reading .poem-body { max-width: 30em; }
 
   /** 导入学习数据：先 sanitize / prune，再整体替换本机数据；返回 { ok, error } */
   function importData(payload) {
-    var raw = payload && typeof payload === 'object' && payload.state ? payload.state : payload;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    if (!isPlainObject(payload)) {
       return { ok: false, error: '文件里没有可识别的学习数据。' };
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'app') && payload.app !== 'hison-poetry-recite') {
+      return { ok: false, error: '这不是古诗文背诵的学习数据备份。' };
+    }
+    var raw = Object.prototype.hasOwnProperty.call(payload, 'state') ? payload.state : payload;
+    // sanitize 的容错不能用于识别备份：{} 和其它应用的 JSON 会被补成空白状态，覆盖现有进度。
+    // v1/v2 原始数据均含这两个核心字段；合法的空白备份也包含它们。
+    if (!isPlainObject(raw) || !Array.isArray(raw.selectedIds) || !isPlainObject(raw.quizStats)) {
+      return { ok: false, error: '文件里没有可识别的学习数据。' };
+    }
+    var versions = [payload.schema, raw.version];
+    if (versions.some(function (version) {
+      return version != null && (!Number.isInteger(version) || version < 1 || version > SCHEMA_VERSION);
+    })) {
+      return { ok: false, error: '备份的数据版本不受当前页面支持，请使用兼容版本导入。' };
     }
     var next = sanitize(raw);
     pruneUnknownIds(next);
@@ -9878,7 +9892,8 @@ body.focus-reading .poem-body { max-width: 30em; }
     var onlyKeys = state.focusKey ? [state.focusKey] : [];
     state.questions = pickQuestions(picked.list, {
       count: requested,
-      modes: prefs.modes,
+      // 指定原题时由 key 唯一定位，不能被后来修改的题型偏好排除。
+      modes: state.focusKey ? MODE_KEY_LIST : prefs.modes,
       filter: questionFilterFn(state.questionFilter),
       preferKeys: preferKeys,
       onlyKeys: onlyKeys,
@@ -10046,6 +10061,7 @@ body.focus-reading .poem-body { max-width: 30em; }
     root.addEventListener('change', function (event) {
       var input = event.target;
       if (input && input.getAttribute && input.getAttribute('data-mode') != null) {
+        state.focusKey = ''; // 主动改题型即结束原题重练，恢复普通筛选。
         var modes = [];
         root.querySelectorAll('[data-mode]').forEach(function (el) {
           if (el.checked) modes.push(el.getAttribute('data-mode'));
@@ -11358,7 +11374,10 @@ body.focus-reading .poem-body { max-width: 30em; }
           toast(result.error || '导入失败');
           return;
         }
-        state.stage = Storage.getState().stage || state.stage;
+        state.stage = Storage.getState().stage;
+        // 恢复另一学段或空白备份后，不能沿用导入前的学段 / 年级筛选。
+        state.filters = { keyword: '', grade: [], genre: [], progress: [] };
+        state.sort = 'default';
         toast('学习数据已导入');
         navigate('home');
       } catch (err) {

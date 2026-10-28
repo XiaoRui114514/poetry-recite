@@ -945,7 +945,10 @@
           toast(result.error || '导入失败');
           return;
         }
-        state.stage = Storage.getState().stage || state.stage;
+        state.stage = Storage.getState().stage;
+        // 恢复另一学段或空白备份后，不能沿用导入前的学段 / 年级筛选。
+        state.filters = { keyword: '', grade: [], genre: [], progress: [] };
+        state.sort = 'default';
         toast('学习数据已导入');
         navigate('home');
       } catch (err) {

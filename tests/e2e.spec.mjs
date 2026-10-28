@@ -1257,6 +1257,33 @@ test('题目级错题：从“只练这句”进入，答对后只移除该句',
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+test('只练这句不受后来更改的题型偏好限制', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoFresh(page);
+  await page.evaluate(() => {
+    const store = window.PoetryStorage;
+    store.patch({ stage: '初中', selectedIds: ['guan-cang-hai'] });
+    store.recordQuiz('guan-cang-hai', false, 'full', {
+      key: 'guan-cang-hai|full|0|s', index: 0, pairIndex: null,
+    });
+    store.updatePrefs({ modes: ['translation'] });
+  });
+  await page.goto('/index.html#/progress');
+  await page.click('.wrong-details summary');
+  await page.click('[data-practice-item]');
+  await expect(page.locator('.quiz-card')).toHaveCount(1);
+  await expect(page.locator('.quiz-card')).toHaveAttribute('data-key', 'guan-cang-hai|full|0|s');
+  expect(await page.evaluate(() => window.PoetryStorage.getState().prefs.modes)).toEqual(['translation']);
+
+  // 主动修改题型后回到普通练习，仍能生成用户选择的题型。
+  await page.check('[data-mode="next"]');
+  await page.click('[data-action="generate"]');
+  const keys = await page.locator('.quiz-card').evaluateAll((cards) => cards.map((card) => card.dataset.key));
+  expect(keys.length).toBeGreaterThan(1);
+  expect(keys.every((key) => /\|(translation|next)\|/.test(key))).toBe(true);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
 test('初中年级筛选：只保留六年级~九年级且可多选，跨年级篇目两个年级都能筛到', async ({ page }) => {
   const errors = watchErrors(page);
   await gotoFresh(page);
@@ -1837,6 +1864,13 @@ test('数据管理：导出 JSON 与导入恢复', async ({ page }) => {
   expect(exported.state.wrongItems.length).toBeGreaterThan(0);
 
   page.on('dialog', (dialog) => dialog.accept());
+  const beforeInvalidImport = await page.evaluate(() => JSON.stringify(window.PoetryStorage.getState()));
+  await page.setInputFiles('#importFile', {
+    name: 'unrelated.json', mimeType: 'application/json', buffer: Buffer.from('{}'),
+  });
+  await expect(page.locator('#toast')).toContainText('没有可识别的学习数据');
+  expect(await page.evaluate(() => JSON.stringify(window.PoetryStorage.getState()))).toBe(beforeInvalidImport);
+
   const importedState = {
     version: 2,
     stage: '初中',
@@ -1860,6 +1894,47 @@ test('数据管理：导出 JSON 与导入恢复', async ({ page }) => {
   expect(after.selectedIds).toEqual(['guan-ju']);
   expect(after.wrongItems).toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('导入跨学段备份后清除旧筛选状态', async ({ page }) => {
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await page.click('[data-filter="grade"][data-value="六年级"]');
+  await page.click('[data-action="select-all"]');
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="progress"]');
+  page.on('dialog', (dialog) => dialog.accept());
+  const backup = await page.evaluate(() => {
+    const state = window.PoetryStorage.defaults();
+    state.stage = '高中';
+    state.selectedIds = [window.PoetryDatabase.byStage('高中')[0].id];
+    return { app: 'hison-poetry-recite', schema: 2, state };
+  });
+  await page.setInputFiles('#importFile', {
+    name: 'senior.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)),
+  });
+  await expect(page.locator('.section-title', { hasText: '高中背诵工作台' })).toHaveCount(1);
+  await page.click('#headerBack');
+  await expect(page.locator('.poem-card')).toHaveCount(COUNTS.senior);
+  await expect(page.locator('[data-filter="grade"][data-value=""]')).toHaveClass(/active/);
+});
+
+test('导入合法空白备份后恢复到学段选择状态', async ({ page }) => {
+  await gotoFresh(page);
+  await chooseStage(page, '初中');
+  await selectPoems(page, ['观沧海']);
+  await page.click('[data-action="start"]');
+  await page.click('[data-action="progress"]');
+  page.on('dialog', (dialog) => dialog.accept());
+  const backup = await page.evaluate(() => ({
+    app: 'hison-poetry-recite', schema: 2, state: window.PoetryStorage.defaults(),
+  }));
+  await page.setInputFiles('#importFile', {
+    name: 'empty.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)),
+  });
+  await expect(page.locator('.section-title').first()).toHaveText('请选择学习阶段');
+  await page.reload();
+  await expect(page.locator('.section-title').first()).toHaveText('请选择学习阶段');
 });
 
 test('无障碍：换页后焦点在标题，viewRoot 不再整页 aria-live', async ({ page }) => {

@@ -493,7 +493,8 @@
     var onlyKeys = state.focusKey ? [state.focusKey] : [];
     state.questions = pickQuestions(picked.list, {
       count: requested,
-      modes: prefs.modes,
+      // 指定原题时由 key 唯一定位，不能被后来修改的题型偏好排除。
+      modes: state.focusKey ? MODE_KEY_LIST : prefs.modes,
       filter: questionFilterFn(state.questionFilter),
       preferKeys: preferKeys,
       onlyKeys: onlyKeys,
@@ -661,6 +662,7 @@
     root.addEventListener('change', function (event) {
       var input = event.target;
       if (input && input.getAttribute && input.getAttribute('data-mode') != null) {
+        state.focusKey = ''; // 主动改题型即结束原题重练，恢复普通筛选。
         var modes = [];
         root.querySelectorAll('[data-mode]').forEach(function (el) {
           if (el.checked) modes.push(el.getAttribute('data-mode'));

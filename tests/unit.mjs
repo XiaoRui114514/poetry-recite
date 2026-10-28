@@ -736,6 +736,27 @@ check('导出数据包含 schema 与 state', exported.schema === 2 && !!exported
 const imported = itemStore.importData(exported);
 check('导入导出往返成功', imported.ok && itemStore.getState().wrongItems.length === 0);
 
+/* 选错 JSON 文件不能把现有进度静默替换成默认空数据。 */
+const importSandbox = loadFiles(makeSandbox(), SCRIPT_ORDER);
+const importStore = importSandbox.PoetryStorage;
+importStore.patch({ stage: '初中', selectedIds: ['guan-ju'] });
+importStore.recordQuiz('guan-ju', false, 'full');
+const beforeImport = JSON.stringify(importStore.getState());
+const beforeImportDisk = importSandbox.localStorage.getItem(importStore.KEY);
+for (const invalid of [
+  {}, { theme: 'dark' }, { state: {} },
+  { app: 'another-app', schema: 2, state: exported.state },
+  { app: 'hison-poetry-recite', schema: 3, state: exported.state },
+  { ...exported.state, version: 3 },
+]) {
+  check('不可识别 / 不兼容备份被拒绝: ' + JSON.stringify(invalid).slice(0, 70), !importStore.importData(invalid).ok);
+  eq('拒绝导入后内存学习数据不变', JSON.stringify(importStore.getState()), beforeImport);
+  eq('拒绝导入后持久化学习数据不变', importSandbox.localStorage.getItem(importStore.KEY), beforeImportDisk);
+}
+check('兼容旧版原始学习数据导入', importStore.importData({ ...exported.state, version: 1 }).ok);
+check('合法空白备份仍可导入', importStore.importData({ ...exported, state: importStore.defaults() }).ok);
+eq('合法空白备份恢复空选择', importStore.getState().selectedIds.length, 0);
+
 store.touchRecent('guan-ju');
 store.touchRecent('jian-jia');
 eq('最近学习：最新的排在最前', store.getState().recents[0].id, 'jian-jia');
