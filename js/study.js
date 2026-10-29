@@ -150,6 +150,19 @@
       (focused ? ' is-focus' : ' is-nonfocus');
   }
 
+  // Keep the original glyph's inline metrics. Different fonts give □ a different
+  // width, so replacing glyphs directly can reflow a narrow screen on hide.
+  function sentenceHtml(sentence, hidden) {
+    if (!hidden) return Utils.escapeHtml(sentence);
+    var original = Array.from(String(sentence));
+    var masked = Array.from(sentenceText(sentence, true));
+    if (original.length !== masked.length) return Utils.escapeHtml(masked.join(''));
+    return original.map(function(ch, index) {
+      if (masked[index] === ch) return Utils.escapeHtml(ch);
+      return '<span class="masked-char" data-original="'+Utils.escapeHtml(ch)+'"><span class="masked-output">'+Utils.escapeHtml(masked[index])+'</span></span>';
+    }).join('');
+  }
+
   function renderSentences(poem) {
     var sentences = state.sentences.length ? state.sentences : Utils.splitSentences(poem.text);
     var translations = poemTranslations(poem);
@@ -161,7 +174,7 @@
           '<button type="button" class="' + lineClass(index) + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
           renderMarker(!!focus[index], examVisible(index)) +
           '<span class="line-content">' +
-          '<span class="line-text">' + Utils.escapeHtml(sentenceText(sentence, hidden)) + brandSig() + '</span>' +
+          '<span class="line-text">' + sentenceHtml(sentence, hidden) + brandSig() + '</span>' +
           renderTranslation(translations[index], transVisible(index)) +
           '</span>' +
           '</button>'
@@ -192,7 +205,7 @@
       var textEl = node.querySelector('.line-text');
       var zhEl = node.querySelector('.line-zh');
       var markerEl = node.querySelector('.line-marker');
-      if (textEl) textEl.textContent = sentenceText(sentences[index], hidden) + brandSig();
+      if (textEl) textEl.innerHTML = sentenceHtml(sentences[index], hidden) + brandSig();
       if (zhEl) {
         zhEl.textContent = translations[index] || '';
         zhEl.classList.toggle('is-off', !transVisible(index));

@@ -1019,7 +1019,10 @@ body.focus-reading .poem-body { max-width: 30em; }
   transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out);
 }
 .line-item:hover { background: var(--color-paper-2); }
-.line-item.is-hidden .line-text { color: var(--color-ink-3); letter-spacing: 0.14em; }
+.line-item.is-hidden .line-text { color: var(--color-ink-3); }
+.masked-char { position: relative; }
+.masked-char::before { content: attr(data-original); visibility: hidden; }
+.masked-output { position: absolute; left: 50%; top: 0; transform: translateX(-50%); }
 .line-item.is-active { background: var(--color-accent-wash); border-color: var(--color-accent); }
 
 /* 考试重点星标列：宽度由 grid 的固定列（1.25em）决定，元素本身不参与宽度计算，
@@ -8894,6 +8897,19 @@ body.focus-reading .poem-body { max-width: 30em; }
       (focused ? ' is-focus' : ' is-nonfocus');
   }
 
+  // Keep the original glyph's inline metrics. Different fonts give □ a different
+  // width, so replacing glyphs directly can reflow a narrow screen on hide.
+  function sentenceHtml(sentence, hidden) {
+    if (!hidden) return Utils.escapeHtml(sentence);
+    var original = Array.from(String(sentence));
+    var masked = Array.from(sentenceText(sentence, true));
+    if (original.length !== masked.length) return Utils.escapeHtml(masked.join(''));
+    return original.map(function(ch, index) {
+      if (masked[index] === ch) return Utils.escapeHtml(ch);
+      return '<span class="masked-char" data-original="'+Utils.escapeHtml(ch)+'"><span class="masked-output">'+Utils.escapeHtml(masked[index])+'</span></span>';
+    }).join('');
+  }
+
   function renderSentences(poem) {
     var sentences = state.sentences.length ? state.sentences : Utils.splitSentences(poem.text);
     var translations = poemTranslations(poem);
@@ -8905,7 +8921,7 @@ body.focus-reading .poem-body { max-width: 30em; }
           '<button type="button" class="' + lineClass(index) + '" data-line="' + index + '" aria-pressed="' + (hidden ? 'true' : 'false') + '">' +
           renderMarker(!!focus[index], examVisible(index)) +
           '<span class="line-content">' +
-          '<span class="line-text">' + Utils.escapeHtml(sentenceText(sentence, hidden)) + brandSig() + '</span>' +
+          '<span class="line-text">' + sentenceHtml(sentence, hidden) + brandSig() + '</span>' +
           renderTranslation(translations[index], transVisible(index)) +
           '</span>' +
           '</button>'
@@ -8936,7 +8952,7 @@ body.focus-reading .poem-body { max-width: 30em; }
       var textEl = node.querySelector('.line-text');
       var zhEl = node.querySelector('.line-zh');
       var markerEl = node.querySelector('.line-marker');
-      if (textEl) textEl.textContent = sentenceText(sentences[index], hidden) + brandSig();
+      if (textEl) textEl.innerHTML = sentenceHtml(sentences[index], hidden) + brandSig();
       if (zhEl) {
         zhEl.textContent = translations[index] || '';
         zhEl.classList.toggle('is-off', !transVisible(index));
