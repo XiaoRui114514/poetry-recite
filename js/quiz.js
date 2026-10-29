@@ -287,6 +287,20 @@
     return questions;
   }
 
+  function compareAnswer(input, expected) {
+    var clean=function(t){return Utils.stripPunctuation(Utils.normalizeText(t)).slice(0,400);};
+    var a=Array.from(clean(input)), b=Array.from(clean(expected)), rows=[];
+    for(var i=0;i<=a.length;i++){ rows[i]=[]; for(var j=0;j<=b.length;j++) rows[i][j]=i===0?j:j===0?i:0; }
+    for(i=1;i<=a.length;i++)for(j=1;j<=b.length;j++) rows[i][j]=a[i-1]===b[j-1]?rows[i-1][j-1]:1+Math.min(rows[i-1][j],rows[i][j-1],rows[i-1][j-1]);
+    var parts=[]; i=a.length; j=b.length;
+    while(i||j){
+      if(i&&j&&a[i-1]===b[j-1]){parts.unshift(Utils.escapeHtml(b[--j]));i--;}
+      else if(i&&j&&rows[i][j]===rows[i-1][j-1]+1){parts.unshift('<del>'+Utils.escapeHtml(a[--i])+'</del><ins>'+Utils.escapeHtml(b[--j])+'</ins>');}
+      else if(j&&rows[i][j]===rows[i][j-1]+1){parts.unshift('<ins>'+Utils.escapeHtml(b[--j])+'</ins>');}
+      else {parts.unshift('<del>'+Utils.escapeHtml(a[--i])+'</del>');}
+    }
+    return {correct:rows[a.length][b.length]===0,html:parts.join('')};
+  }
   function renderQuestion(question, index) {
     var answered = state.answered[question.key];
     var show = state.showAll || (answered && answered.showAnswer);
@@ -313,6 +327,8 @@
             '<div class="answer-badge-text"><span class="badge badge-success">答案</span><span class="answer-text">' + Utils.escapeHtml(question.answerText) + brandSig() + '</span></div>' +
           '</div></div>' +
         '</div>' +
+        '<div class="typed-answer"><label>输入默写（可选）<input type="text" maxlength="400" data-typed="'+Utils.escapeHtml(question.key)+'" value="'+Utils.escapeHtml((state.typed||{})[question.key]||'')+'" autocomplete="off"></label>' +
+        '<button type="button" class="btn btn-sm" data-action="compare-input" data-key="'+Utils.escapeHtml(question.key)+'">对照错字</button><div data-diff role="status"></div><p class="tiny muted">忽略空白与标点；删除线是多写/错字，下划线是漏字/参考字。异文请核对教材后自行判定。</p></div>' +
         '<div class="grade-row">' +
           '<button type="button" class="btn btn-sm btn-success" data-action="mark-right" data-key="' + Utils.escapeHtml(question.key) + '"' + (answered ? ' disabled' : '') + '>✔ 默写正确</button>' +
           '<button type="button" class="btn btn-sm" data-action="mark-wrong" data-key="' + Utils.escapeHtml(question.key) + '"' + (answered ? ' disabled' : '') + '>✘ 加入错题</button>' +
@@ -490,11 +506,11 @@
       return poem.id;
     });
     var preferKeys = state.scope === 'wrong' ? Storage.wrongItemKeysForPoems(ids) : [];
-    var onlyKeys = state.focusKey ? [state.focusKey] : [];
+    var onlyKeys = state.focusKey ? [state.focusKey] : (state.scope === "review" ? Storage.dueSentenceKeys() : []);
     state.questions = pickQuestions(picked.list, {
       count: requested,
       // 指定原题时由 key 唯一定位，不能被后来修改的题型偏好排除。
-      modes: state.focusKey ? MODE_KEY_LIST : prefs.modes,
+      modes: onlyKeys.length ? MODE_KEY_LIST : prefs.modes,
       filter: questionFilterFn(state.questionFilter),
       preferKeys: preferKeys,
       onlyKeys: onlyKeys,
@@ -610,6 +626,15 @@
       if (state.answered[key]) state.answered[key].showAnswer = willShow;
       return;
     }
+    if (action === 'compare-input') {
+      var key=actionEl.getAttribute('data-key'), q=state.questions.filter(function(item){return item.key===key;})[0];
+      var card=actionEl.closest('.quiz-card'), input=card && card.querySelector('[data-typed]');
+      if (!q || !input) return;
+      state.typed=state.typed||{}; state.typed[key]=input.value;
+      var result=compareAnswer(input.value,q.answerText);
+      card.querySelector('[data-diff]').innerHTML=(result.correct?'与当前正文一致：':'请核对差异：')+result.html;
+      return;
+    }
     if (action === 'mark-right' || action === 'mark-wrong') {
       var qKey = actionEl.getAttribute('data-key');
       var question = null;
@@ -675,6 +700,7 @@
   }
 
   global.PoetryQuiz = {
+    compareAnswer: compareAnswer,
     MODES: MODES,
     mount: mount,
     modeLabel: modeLabel,

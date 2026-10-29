@@ -1405,6 +1405,20 @@
     }
   }
 
+  function storageNotice() {
+    if (!document.getElementById || !document.createElement || !document.body) return;
+    var node=document.getElementById('storageFailure');
+    if (Storage.isPersistent()) { if(node)node.remove(); return; }
+    if(node)return;
+    node=document.createElement('div'); node.id='storageFailure'; node.setAttribute('role','alert');
+    node.style.cssText='position:fixed;bottom:12px;left:12px;right:12px;padding:12px;background:#fff2cf;color:#453000;z-index:1000;border:1px solid #a97800';
+    node.appendChild(document.createTextNode('保存失败：当前更改仅在此页面有效。请先导出，保留页面后重试。 '));
+    var exp=document.createElement('button');exp.textContent='导出当前数据';exp.addEventListener('click',function(){var text=JSON.stringify(Storage.exportData(),null,2);downloadText('poetry-backup.json',text);});
+    var retry=document.createElement('button');retry.textContent='重试保存';retry.addEventListener('click',function(){Storage.save();storageNotice();});
+    node.appendChild(exp);node.appendChild(retry);document.body.appendChild(node);
+  }
+  if(global.addEventListener) global.addEventListener('poetry-storage',storageNotice);
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',storageNotice); else storageNotice();
   global.PoetryApp = {
     toast: toast,
     navigate: navigate,

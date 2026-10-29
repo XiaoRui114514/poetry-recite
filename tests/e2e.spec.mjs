@@ -1859,7 +1859,7 @@ test('数据管理：导出 JSON 与导入恢复', async ({ page }) => {
   const filePath = await download.path();
   const exported = JSON.parse(readFileSync(filePath, 'utf8'));
   expect(exported.app).toBe('hison-poetry-recite');
-  expect(exported.schema).toBe(2);
+  expect(exported.schema).toBe(3);
   expect(exported.state.selectedIds).toEqual(['guan-cang-hai']);
   expect(exported.state.wrongItems.length).toBeGreaterThan(0);
 
@@ -1949,3 +1949,19 @@ test('无障碍：换页后焦点在标题，viewRoot 不再整页 aria-live', a
   expect(active.text).toContain('请选择要背诵的篇目');
 });
 
+
+test('输入式默写可对照错字，保存失败提示与重试可恢复',async({page})=>{
+ await gotoFresh(page);await chooseStage(page);await selectPoems(page,['关雎']);
+ await page.click('[data-action="start"]');
+ await page.click('[data-action="quiz"]');
+ const card=page.locator('.quiz-card').first();await expect(card).toBeVisible();
+ await card.locator('[data-typed]').fill('错误输入');
+ await card.locator('[data-action="compare-input"]').click();
+ await expect(card.locator('[data-diff]')).toContainText('请核对差异');
+ await expect(card.locator('[data-diff] ins').first()).toBeVisible();
+ await page.evaluate(()=>{window.__write=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException('quota','QuotaExceededError');};PoetryStorage.save();});
+ await expect(page.locator('#storageFailure')).toContainText('仅在此页面有效');
+ await page.evaluate(()=>{Storage.prototype.setItem=window.__write;});
+ await page.getByText('重试保存',{exact:true}).click();
+ await expect(page.locator('#storageFailure')).toHaveCount(0);
+});

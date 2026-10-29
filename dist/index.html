@@ -7820,7 +7820,7 @@ body.focus-reading .poem-body { max-width: 30em; }
 
   var Utils = global.PoetryUtils;
   var STORAGE_KEY = 'ruishao-poetry-study-v1';
-  var SCHEMA_VERSION = 2;
+  var SCHEMA_VERSION = 3;
   var DAILY_LIMIT = 60;
   var RECENT_LIMIT = 20;
   var WRONG_LIMIT = 200;
@@ -7860,6 +7860,7 @@ body.focus-reading .poem-body { max-width: 30em; }
       },
       wrongItems: [],         // 题目级错题 [{ key, poemId, mode, index, pairIndex, time, count }]
       wrongBook: [],          // 篇目级汇总（由 wrongItems 派生，保留给旧 UI / 旧数据）
+      sentenceReview: {},
       review: {},             // { id: { level, due, lastTime } }
       daily: {},              // { '2026-09-12': { quiz, correct } }
       prefs: {
@@ -7887,10 +7888,12 @@ body.focus-reading .poem-body { max-width: 30em; }
     try {
       global.localStorage.setItem(STORAGE_KEY, value);
       memoryFallback = null;
+      if (global.dispatchEvent && global.CustomEvent) global.dispatchEvent(new global.CustomEvent('poetry-storage', {detail:true}));
       return true;
     } catch (err) {
       // 隐私模式 / 配额满：退化成内存存储，保证本次会话可用
       memoryFallback = value;
+      if (global.dispatchEvent && global.CustomEvent) global.dispatchEvent(new global.CustomEvent('poetry-storage', {detail:false}));
       return false;
     }
   }
@@ -8130,6 +8133,14 @@ body.focus-reading .poem-body { max-width: 30em; }
       });
     }
 
+    if (isPlainObject(raw.sentenceReview)) {
+      Object.keys(raw.sentenceReview).slice(0, WRONG_ITEM_LIMIT).forEach(function(key) {
+        var c=raw.sentenceReview[key];
+        if (key.indexOf('|') < 0 || !isPlainObject(c) || typeof c.poemId !== 'string' || !normalizeMode(c.mode) || !Number.isInteger(c.index) || c.index < 0) return;
+        base.sentenceReview[key]={poemId:c.poemId, mode:c.mode, index:c.index, pairIndex:Number.isInteger(c.pairIndex)?c.pairIndex:null,
+          level:Utils.clamp(toCount(c.level),0,SRS_MAX_LEVEL), due:Utils.isValidDayKey(c.due)?c.due:'', lastTime:toNumber(c.lastTime)};
+      });
+    }
     if (isPlainObject(raw.daily)) {
       // 只认合法日期键（非法 / 空 / 明显不合理的日期直接丢弃），按日期升序后取最近 60 天
       Utils.sortDayKeys(Object.keys(raw.daily)).slice(-DAILY_LIMIT).forEach(function (day) {
@@ -8313,6 +8324,9 @@ body.focus-reading .poem-body { max-width: 30em; }
       if (item && allowed[item.poemId]) return true;
       removed += 1;
       return false;
+    });
+    Object.keys(data.sentenceReview || {}).forEach(function(key) {
+      if (!allowed[data.sentenceReview[key].poemId]) { delete data.sentenceReview[key]; removed += 1; }
     });
     Object.keys(data.review || {}).forEach(function (id) {
       if (!allowed[id]) {
@@ -8588,6 +8602,15 @@ body.focus-reading .poem-body { max-width: 30em; }
         addWrong(poemId, safeMode, true);
       }
       scheduleReview(poemId, isCorrect);
+      if (meta && meta.key && Number.isInteger(meta.index)) {
+        var old=state.sentenceReview[meta.key] || {level:0,lastTime:0};
+        var same=old.lastTime && Utils.todayKey(new Date(old.lastTime)) === day;
+        var level=isCorrect ? Math.min(SRS_MAX_LEVEL,old.level+(same?0:1)) : 0;
+        state.sentenceReview[meta.key]={poemId:poemId,mode:safeMode,index:meta.index,pairIndex:meta.pairIndex,
+          level:level,due:(same && isCorrect && old.due)?old.due:Utils.addDaysKey(day,SRS_STEPS[Math.max(0,level-1)]),lastTime:Date.now()};
+        var keys=Object.keys(state.sentenceReview).sort(function(a,b){return state.sentenceReview[b].lastTime-state.sentenceReview[a].lastTime;});
+        keys.slice(WRONG_ITEM_LIMIT).forEach(function(k){delete state.sentenceReview[k];});
+      }
     }
     save();
     return state;
@@ -8620,7 +8643,8 @@ body.focus-reading .poem-body { max-width: 30em; }
 
   function duePoemIds(day) {
     var today = Utils.todayKey(day);
-    return Object.keys(state.review)
+    var cards=Object.keys(state.sentenceReview).filter(function(key){return Utils.isDueDay(state.sentenceReview[key].due,today);}).map(function(key){return state.sentenceReview[key].poemId;});
+    return Utils.unique(cards.concat(Object.keys(state.review)
       .filter(function (id) {
         var item = state.review[id];
         return item && Utils.isDueDay(item.due, today);
@@ -8630,7 +8654,7 @@ body.focus-reading .poem-body { max-width: 30em; }
         var db = state.review[b].due || '';
         if (da !== db) return da < db ? -1 : 1;
         return a < b ? -1 : a > b ? 1 : 0;
-      });
+      })));
   }
 
   function reviewFor(poemId) {
@@ -8676,6 +8700,8 @@ body.focus-reading .poem-body { max-width: 30em; }
   }
 
   global.PoetryStorage = {
+    isPersistent: function(){return memoryFallback === null;},
+    dueSentenceKeys: function(){return Object.keys(state.sentenceReview).filter(function(key){return Utils.isDueDay(state.sentenceReview[key].due,Utils.todayKey());});},
     KEY: STORAGE_KEY,
     MODE_KEYS: MODE_KEYS,
     QUIZ_COUNT_OPTIONS: QUIZ_COUNT_OPTIONS,
@@ -9686,6 +9712,20 @@ body.focus-reading .poem-body { max-width: 30em; }
     return questions;
   }
 
+  function compareAnswer(input, expected) {
+    var clean=function(t){return Utils.stripPunctuation(Utils.normalizeText(t)).slice(0,400);};
+    var a=Array.from(clean(input)), b=Array.from(clean(expected)), rows=[];
+    for(var i=0;i<=a.length;i++){ rows[i]=[]; for(var j=0;j<=b.length;j++) rows[i][j]=i===0?j:j===0?i:0; }
+    for(i=1;i<=a.length;i++)for(j=1;j<=b.length;j++) rows[i][j]=a[i-1]===b[j-1]?rows[i-1][j-1]:1+Math.min(rows[i-1][j],rows[i][j-1],rows[i-1][j-1]);
+    var parts=[]; i=a.length; j=b.length;
+    while(i||j){
+      if(i&&j&&a[i-1]===b[j-1]){parts.unshift(Utils.escapeHtml(b[--j]));i--;}
+      else if(i&&j&&rows[i][j]===rows[i-1][j-1]+1){parts.unshift('<del>'+Utils.escapeHtml(a[--i])+'</del><ins>'+Utils.escapeHtml(b[--j])+'</ins>');}
+      else if(j&&rows[i][j]===rows[i][j-1]+1){parts.unshift('<ins>'+Utils.escapeHtml(b[--j])+'</ins>');}
+      else {parts.unshift('<del>'+Utils.escapeHtml(a[--i])+'</del>');}
+    }
+    return {correct:rows[a.length][b.length]===0,html:parts.join('')};
+  }
   function renderQuestion(question, index) {
     var answered = state.answered[question.key];
     var show = state.showAll || (answered && answered.showAnswer);
@@ -9712,6 +9752,8 @@ body.focus-reading .poem-body { max-width: 30em; }
             '<div class="answer-badge-text"><span class="badge badge-success">答案</span><span class="answer-text">' + Utils.escapeHtml(question.answerText) + brandSig() + '</span></div>' +
           '</div></div>' +
         '</div>' +
+        '<div class="typed-answer"><label>输入默写（可选）<input type="text" maxlength="400" data-typed="'+Utils.escapeHtml(question.key)+'" value="'+Utils.escapeHtml((state.typed||{})[question.key]||'')+'" autocomplete="off"></label>' +
+        '<button type="button" class="btn btn-sm" data-action="compare-input" data-key="'+Utils.escapeHtml(question.key)+'">对照错字</button><div data-diff role="status"></div><p class="tiny muted">忽略空白与标点；删除线是多写/错字，下划线是漏字/参考字。异文请核对教材后自行判定。</p></div>' +
         '<div class="grade-row">' +
           '<button type="button" class="btn btn-sm btn-success" data-action="mark-right" data-key="' + Utils.escapeHtml(question.key) + '"' + (answered ? ' disabled' : '') + '>✔ 默写正确</button>' +
           '<button type="button" class="btn btn-sm" data-action="mark-wrong" data-key="' + Utils.escapeHtml(question.key) + '"' + (answered ? ' disabled' : '') + '>✘ 加入错题</button>' +
@@ -9889,11 +9931,11 @@ body.focus-reading .poem-body { max-width: 30em; }
       return poem.id;
     });
     var preferKeys = state.scope === 'wrong' ? Storage.wrongItemKeysForPoems(ids) : [];
-    var onlyKeys = state.focusKey ? [state.focusKey] : [];
+    var onlyKeys = state.focusKey ? [state.focusKey] : (state.scope === "review" ? Storage.dueSentenceKeys() : []);
     state.questions = pickQuestions(picked.list, {
       count: requested,
       // 指定原题时由 key 唯一定位，不能被后来修改的题型偏好排除。
-      modes: state.focusKey ? MODE_KEY_LIST : prefs.modes,
+      modes: onlyKeys.length ? MODE_KEY_LIST : prefs.modes,
       filter: questionFilterFn(state.questionFilter),
       preferKeys: preferKeys,
       onlyKeys: onlyKeys,
@@ -10009,6 +10051,15 @@ body.focus-reading .poem-body { max-width: 30em; }
       if (state.answered[key]) state.answered[key].showAnswer = willShow;
       return;
     }
+    if (action === 'compare-input') {
+      var key=actionEl.getAttribute('data-key'), q=state.questions.filter(function(item){return item.key===key;})[0];
+      var card=actionEl.closest('.quiz-card'), input=card && card.querySelector('[data-typed]');
+      if (!q || !input) return;
+      state.typed=state.typed||{}; state.typed[key]=input.value;
+      var result=compareAnswer(input.value,q.answerText);
+      card.querySelector('[data-diff]').innerHTML=(result.correct?'与当前正文一致：':'请核对差异：')+result.html;
+      return;
+    }
     if (action === 'mark-right' || action === 'mark-wrong') {
       var qKey = actionEl.getAttribute('data-key');
       var question = null;
@@ -10074,6 +10125,7 @@ body.focus-reading .poem-body { max-width: 30em; }
   }
 
   global.PoetryQuiz = {
+    compareAnswer: compareAnswer,
     MODES: MODES,
     mount: mount,
     modeLabel: modeLabel,
@@ -11834,6 +11886,20 @@ body.focus-reading .poem-body { max-width: 30em; }
     }
   }
 
+  function storageNotice() {
+    if (!document.getElementById || !document.createElement || !document.body) return;
+    var node=document.getElementById('storageFailure');
+    if (Storage.isPersistent()) { if(node)node.remove(); return; }
+    if(node)return;
+    node=document.createElement('div'); node.id='storageFailure'; node.setAttribute('role','alert');
+    node.style.cssText='position:fixed;bottom:12px;left:12px;right:12px;padding:12px;background:#fff2cf;color:#453000;z-index:1000;border:1px solid #a97800';
+    node.appendChild(document.createTextNode('保存失败：当前更改仅在此页面有效。请先导出，保留页面后重试。 '));
+    var exp=document.createElement('button');exp.textContent='导出当前数据';exp.addEventListener('click',function(){var text=JSON.stringify(Storage.exportData(),null,2);downloadText('poetry-backup.json',text);});
+    var retry=document.createElement('button');retry.textContent='重试保存';retry.addEventListener('click',function(){Storage.save();storageNotice();});
+    node.appendChild(exp);node.appendChild(retry);document.body.appendChild(node);
+  }
+  if(global.addEventListener) global.addEventListener('poetry-storage',storageNotice);
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',storageNotice); else storageNotice();
   global.PoetryApp = {
     toast: toast,
     navigate: navigate,
@@ -11865,7 +11931,18 @@ body.focus-reading .poem-body { max-width: 30em; }
     var manifest = document.querySelector('link[rel="manifest"]');
     if (!manifest) return; // 单文件版没有 manifest，不注册
     try {
-      global.navigator.serviceWorker.register('sw.js').catch(function () {
+      global.navigator.serviceWorker.register('sw.js').then(function(reg) {
+        var requested=false;
+        function notice() {
+          if (!reg.waiting || !global.navigator.serviceWorker.controller || document.getElementById('pwaUpdate')) return;
+          var button=document.createElement('button');button.id='pwaUpdate';button.className='btn';button.textContent='新版本可用：结束练习后点此更新';
+          button.style.cssText='position:fixed;bottom:8px;right:8px;z-index:900';
+          button.addEventListener('click',function(){requested=true; reg.waiting.postMessage({type:'SKIP_WAITING'});});
+          document.body.appendChild(button);
+        }
+        notice();reg.addEventListener('updatefound',function(){var worker=reg.installing;if(worker)worker.addEventListener('statechange',notice);});
+        global.navigator.serviceWorker.addEventListener('controllerchange',function(){if(requested)global.location.reload();});
+      }).catch(function () {
         /* 注册失败不影响主功能：页面仍然可以直接用 */
       });
     } catch (err) {

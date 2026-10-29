@@ -1,3 +1,4 @@
+self.addEventListener('message', function(event) { if(event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 /* 上海初高古诗文背诵 —— Service Worker
    只服务模块化 / http(s) 版本；单文件版用 file:// 打开时不会注册。
    策略：
@@ -6,7 +7,7 @@
    发布新版本时把 CACHE 里的版本号 +1，旧缓存会在 activate 时清掉。 */
 'use strict';
 
-var CACHE = 'poetry-recite-v1.5.1-backup-retry-fix';
+var CACHE = 'poetry-recite-features-1.5.1-backup-retry-fix';
 var ASSETS = [
   './',
   './index.html',
@@ -34,7 +35,7 @@ self.addEventListener('install', function (event) {
     caches.open(CACHE).then(function (cache) {
       return cache.addAll(ASSETS);
     }).then(function () {
-      return self.skipWaiting();
+      return undefined;
     })
   );
 });

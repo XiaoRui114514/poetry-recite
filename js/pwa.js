@@ -11,7 +11,18 @@
     var manifest = document.querySelector('link[rel="manifest"]');
     if (!manifest) return; // 单文件版没有 manifest，不注册
     try {
-      global.navigator.serviceWorker.register('sw.js').catch(function () {
+      global.navigator.serviceWorker.register('sw.js').then(function(reg) {
+        var requested=false;
+        function notice() {
+          if (!reg.waiting || !global.navigator.serviceWorker.controller || document.getElementById('pwaUpdate')) return;
+          var button=document.createElement('button');button.id='pwaUpdate';button.className='btn';button.textContent='新版本可用：结束练习后点此更新';
+          button.style.cssText='position:fixed;bottom:8px;right:8px;z-index:900';
+          button.addEventListener('click',function(){requested=true; reg.waiting.postMessage({type:'SKIP_WAITING'});});
+          document.body.appendChild(button);
+        }
+        notice();reg.addEventListener('updatefound',function(){var worker=reg.installing;if(worker)worker.addEventListener('statechange',notice);});
+        global.navigator.serviceWorker.addEventListener('controllerchange',function(){if(requested)global.location.reload();});
+      }).catch(function () {
         /* 注册失败不影响主功能：页面仍然可以直接用 */
       });
     } catch (err) {

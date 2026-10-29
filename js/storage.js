@@ -13,7 +13,7 @@
 
   var Utils = global.PoetryUtils;
   var STORAGE_KEY = 'ruishao-poetry-study-v1';
-  var SCHEMA_VERSION = 2;
+  var SCHEMA_VERSION = 3;
   var DAILY_LIMIT = 60;
   var RECENT_LIMIT = 20;
   var WRONG_LIMIT = 200;
@@ -53,6 +53,7 @@
       },
       wrongItems: [],         // 题目级错题 [{ key, poemId, mode, index, pairIndex, time, count }]
       wrongBook: [],          // 篇目级汇总（由 wrongItems 派生，保留给旧 UI / 旧数据）
+      sentenceReview: {},
       review: {},             // { id: { level, due, lastTime } }
       daily: {},              // { '2026-09-12': { quiz, correct } }
       prefs: {
@@ -80,10 +81,12 @@
     try {
       global.localStorage.setItem(STORAGE_KEY, value);
       memoryFallback = null;
+      if (global.dispatchEvent && global.CustomEvent) global.dispatchEvent(new global.CustomEvent('poetry-storage', {detail:true}));
       return true;
     } catch (err) {
       // 隐私模式 / 配额满：退化成内存存储，保证本次会话可用
       memoryFallback = value;
+      if (global.dispatchEvent && global.CustomEvent) global.dispatchEvent(new global.CustomEvent('poetry-storage', {detail:false}));
       return false;
     }
   }
@@ -323,6 +326,14 @@
       });
     }
 
+    if (isPlainObject(raw.sentenceReview)) {
+      Object.keys(raw.sentenceReview).slice(0, WRONG_ITEM_LIMIT).forEach(function(key) {
+        var c=raw.sentenceReview[key];
+        if (key.indexOf('|') < 0 || !isPlainObject(c) || typeof c.poemId !== 'string' || !normalizeMode(c.mode) || !Number.isInteger(c.index) || c.index < 0) return;
+        base.sentenceReview[key]={poemId:c.poemId, mode:c.mode, index:c.index, pairIndex:Number.isInteger(c.pairIndex)?c.pairIndex:null,
+          level:Utils.clamp(toCount(c.level),0,SRS_MAX_LEVEL), due:Utils.isValidDayKey(c.due)?c.due:'', lastTime:toNumber(c.lastTime)};
+      });
+    }
     if (isPlainObject(raw.daily)) {
       // 只认合法日期键（非法 / 空 / 明显不合理的日期直接丢弃），按日期升序后取最近 60 天
       Utils.sortDayKeys(Object.keys(raw.daily)).slice(-DAILY_LIMIT).forEach(function (day) {
@@ -506,6 +517,9 @@
       if (item && allowed[item.poemId]) return true;
       removed += 1;
       return false;
+    });
+    Object.keys(data.sentenceReview || {}).forEach(function(key) {
+      if (!allowed[data.sentenceReview[key].poemId]) { delete data.sentenceReview[key]; removed += 1; }
     });
     Object.keys(data.review || {}).forEach(function (id) {
       if (!allowed[id]) {
@@ -781,6 +795,15 @@
         addWrong(poemId, safeMode, true);
       }
       scheduleReview(poemId, isCorrect);
+      if (meta && meta.key && Number.isInteger(meta.index)) {
+        var old=state.sentenceReview[meta.key] || {level:0,lastTime:0};
+        var same=old.lastTime && Utils.todayKey(new Date(old.lastTime)) === day;
+        var level=isCorrect ? Math.min(SRS_MAX_LEVEL,old.level+(same?0:1)) : 0;
+        state.sentenceReview[meta.key]={poemId:poemId,mode:safeMode,index:meta.index,pairIndex:meta.pairIndex,
+          level:level,due:(same && isCorrect && old.due)?old.due:Utils.addDaysKey(day,SRS_STEPS[Math.max(0,level-1)]),lastTime:Date.now()};
+        var keys=Object.keys(state.sentenceReview).sort(function(a,b){return state.sentenceReview[b].lastTime-state.sentenceReview[a].lastTime;});
+        keys.slice(WRONG_ITEM_LIMIT).forEach(function(k){delete state.sentenceReview[k];});
+      }
     }
     save();
     return state;
@@ -813,7 +836,8 @@
 
   function duePoemIds(day) {
     var today = Utils.todayKey(day);
-    return Object.keys(state.review)
+    var cards=Object.keys(state.sentenceReview).filter(function(key){return Utils.isDueDay(state.sentenceReview[key].due,today);}).map(function(key){return state.sentenceReview[key].poemId;});
+    return Utils.unique(cards.concat(Object.keys(state.review)
       .filter(function (id) {
         var item = state.review[id];
         return item && Utils.isDueDay(item.due, today);
@@ -823,7 +847,7 @@
         var db = state.review[b].due || '';
         if (da !== db) return da < db ? -1 : 1;
         return a < b ? -1 : a > b ? 1 : 0;
-      });
+      })));
   }
 
   function reviewFor(poemId) {
@@ -869,6 +893,8 @@
   }
 
   global.PoetryStorage = {
+    isPersistent: function(){return memoryFallback === null;},
+    dueSentenceKeys: function(){return Object.keys(state.sentenceReview).filter(function(key){return Utils.isDueDay(state.sentenceReview[key].due,Utils.todayKey());});},
     KEY: STORAGE_KEY,
     MODE_KEYS: MODE_KEYS,
     QUIZ_COUNT_OPTIONS: QUIZ_COUNT_OPTIONS,

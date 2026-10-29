@@ -732,7 +732,7 @@ eq('阅读偏好译文开关被保存', itemStore.getState().prefs.showTranslati
 check('阅读偏好修改后仍通过校验', Storage.validate(itemStore.getState()).length === 0, Storage.validate(itemStore.getState()).join('; '));
 
 const exported = itemStore.exportData();
-check('导出数据包含 schema 与 state', exported.schema === 2 && !!exported.state && exported.app === 'hison-poetry-recite');
+check('导出数据包含 schema 与 state', exported.schema === 3 && !!exported.state && exported.app === 'hison-poetry-recite');
 const imported = itemStore.importData(exported);
 check('导入导出往返成功', imported.ok && itemStore.getState().wrongItems.length === 0);
 
@@ -746,8 +746,8 @@ const beforeImportDisk = importSandbox.localStorage.getItem(importStore.KEY);
 for (const invalid of [
   {}, { theme: 'dark' }, { state: {} },
   { app: 'another-app', schema: 2, state: exported.state },
-  { app: 'hison-poetry-recite', schema: 3, state: exported.state },
-  { ...exported.state, version: 3 },
+  { app: 'hison-poetry-recite', schema: 4, state: exported.state },
+  { ...exported.state, version: 4 },
 ]) {
   check('不可识别 / 不兼容备份被拒绝: ' + JSON.stringify(invalid).slice(0, 70), !importStore.importData(invalid).ok);
   eq('拒绝导入后内存学习数据不变', JSON.stringify(importStore.getState()), beforeImport);
@@ -896,6 +896,26 @@ check('README 记录当前版本', readme.includes('v' + pkg.version));
 check('README 题库总数与真实数据一致', readme.includes(`**${all.length} 篇（段）**`));
 
 section('离线与版本');
+
+section('新增：输入对照、句子复习与落盘状态');
+check('输入对照忽略空白标点', Quiz.compareAnswer('关关 雎鸠。','关关雎鸠').correct);
+const diff=Quiz.compareAnswer('关关雎鸟','关关雎鸠');
+check('错字对照显示删除和补入', !diff.correct && diff.html.includes('<del>鸟</del>') && diff.html.includes('<ins>鸠</ins>'));
+check('输入 HTML 被转义', !Quiz.compareAnswer('<script>','a').html.includes('<script>'));
+Storage.reset();
+Storage.recordQuiz('guan-ju',false,'full',{key:'guan-ju|full|0|s',index:0,pairIndex:null});
+const card=Storage.getState().sentenceReview['guan-ju|full|0|s'];
+check('答题建立句子复习卡', card && card.poemId==='guan-ju' && card.level===0);
+card.due=U.todayKey();
+check('到期句子可精确重练', Storage.dueSentenceKeys().includes('guan-ju|full|0|s'));
+const savedCards=Storage.exportData();
+Storage.reset();
+check('新版备份恢复句子复习卡', Storage.importData(savedCards).ok && !!Storage.getState().sentenceReview['guan-ju|full|0|s']);
+const originalWrite=sandbox.localStorage.setItem;
+sandbox.localStorage.setItem=()=>{throw new Error('quota');};
+check('配额不足时明确报告仅内存状态', Storage.save()===false && !Storage.isPersistent());
+sandbox.localStorage.setItem=originalWrite;
+check('重试成功恢复持久化状态', Storage.save() && Storage.isPersistent());
 
 /* ========== 输出 ========== */
 
