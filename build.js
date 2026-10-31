@@ -34,6 +34,9 @@ function buildBrandModule() {
 }
 
 let html = read('index.html');
+// Optional account code belongs to hosted pages; the downloadable file stays fully offline.
+const cloudScripts = ['js/cloud-sync.js', 'js/cloud-adapter.js'];
+html = html.replace(/[ \t]*<!-- HOSTED_CLOUD_START -->[\s\S]*?<!-- HOSTED_CLOUD_END -->\r?\n?/, '');
 
 // 0) PWA manifest 只属于模块化版本；单文件版没有 sw.js / manifest 文件，去掉引用避免 404
 html = html.replace(/[ \t]*<link rel="manifest"[^>]*>\r?\n?/g, '');
@@ -66,14 +69,18 @@ if (leftovers.length) {
 }
 
 fs.mkdirSync(distDir, { recursive: true });
+fs.copyFileSync(path.join(root, '_routes.json'), path.join(distDir, '_routes.json'));
 const banner = `<!-- 古诗文背诵学习系统 · 单文件版（由 build.js 生成，请勿直接编辑） -->\n`;
 const outHtml = banner + html;
 
 const targets = ['index.html', '上海初高古诗文背诵.html'];
 for (const name of targets) {
   const file = path.join(distDir, name);
-  fs.writeFileSync(file, outHtml, 'utf8');
-  process.stdout.write(`  ✓ ${path.relative(root, file)}  ${(Buffer.byteLength(outHtml) / 1024).toFixed(1)} KB\n`);
+  const content = name === 'index.html'
+    ? outHtml.replace('/* ===== js/app.js ===== */', () => cloudScripts.map(read).join('\n') + '\n/* ===== js/app.js ===== */')
+    : outHtml;
+  fs.writeFileSync(file, content, 'utf8');
+  process.stdout.write(`  ✓ ${path.relative(root, file)}  ${(Buffer.byteLength(content) / 1024).toFixed(1)} KB\n`);
 }
 
 process.stdout.write(`单文件打包完成：共内联 ${scriptSrcs.length} 个脚本，${css.length} 字节样式\n`);

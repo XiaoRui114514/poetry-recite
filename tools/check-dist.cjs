@@ -86,7 +86,6 @@ function readBundleCounts(file) {
 const source = readSourceCounts();
 if (source.problems.length) source.problems.forEach((message) => fail('源数据在数据库层报错：' + message));
 
-let previousHtml = null;
 for (const target of targets) {
   const file = path.join(root, target);
   if (!fs.existsSync(file)) {
@@ -126,7 +125,7 @@ for (const target of targets) {
   if (/@import\s+url\(\s*['"]?(https?:)?\/\//.test(bundle.html) || /url\(\s*['"]?(https?:)?\/\//.test(bundle.html)) {
     fail(`${target} 的 CSS 里引用了远程资源`);
   }
-  ['fetch(', 'XMLHttpRequest', 'WebSocket', 'navigator.sendBeacon'].forEach((api) => {
+  (target === 'dist/index.html' ? [] : ['fetch(', 'XMLHttpRequest', 'WebSocket', 'navigator.sendBeacon']).forEach((api) => {
     if (bundle.html.includes(api)) fail(`${target} 含运行时联网 API：${api}`);
   });
 
@@ -140,9 +139,9 @@ for (const target of targets) {
   else if (!bundle.html.includes(repoUrl)) fail(`${target} 产物里没有包含仓库地址 ${repoUrl}`);
   if (!bundle.html.includes('bf-repo')) fail(`${target} 缺少页脚 GitHub 链接的渲染逻辑（bf-repo）`);
 
-  /* --- 5) 两份产物必须完全一致 --- */
-  if (previousHtml !== null && previousHtml !== bundle.html) fail('dist 下两份产物内容不一致（index.html 与单文件分享版应当是同一份）');
-  previousHtml = bundle.html;
+  /* --- 5) 托管版含可选云模块；分享版保持离线 --- */
+  if (target === 'dist/index.html' && !bundle.html.includes('LearningCloud')) fail('托管版缺少可选云同步模块');
+  if (target !== 'dist/index.html' && bundle.html.includes('LearningCloud')) fail('离线分享版不应包含云同步模块');
 }
 
 /* --- 6) 元数据版本号与 package.json 同步 --- */
@@ -176,7 +175,7 @@ localRefs.forEach((ref) => {
 /* --- 结论 --- */
 console.log('外部脚本引用:', '无', '| 外部样式引用:', '无');
 console.log('品牌样式注入: true | 版本号注入 (v' + pkg.version + '): true | metadata 同步: true');
-console.log('离线检查: 无 fetch / XHR / WebSocket / 远程资源');
+console.log('离线分享版检查: 无 fetch / XHR / WebSocket / 远程资源；托管版允许同源云同步');
 if (errors.length) {
   errors.forEach((message) => console.error('  ✗ ' + message));
   console.error('❌ 构建产物自检未通过（' + errors.length + ' 项）');

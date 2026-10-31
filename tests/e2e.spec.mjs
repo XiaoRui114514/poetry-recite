@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 
+// The static regression server does not run Pages Functions. Account workflows
+// use their dedicated API mocks; legacy learning tests remain anonymous.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/me', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ user: null }),
+  }));
+});
+
 const CONSOLE_IGNORE = [/favicon/i];
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -616,6 +624,9 @@ test('所有页面按钮都有明确功能，没有“死按钮”', async ({ pa
   const known = [
     '#headerBack',
     '#themeToggle',
+    // Shared account controls have direct listeners and dedicated workflow tests.
+    '.learning-cloud-entry',
+    '.learning-cloud-dialog',
     '[data-brand]',
     '[data-action]',
     '[data-stage]',

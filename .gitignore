@@ -13,3 +13,14 @@ meta/batches/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local Cloudflare credentials, state and private backups
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.wrangler/
+.wrangler-state/
+backups/
+*.sqlite
+*.sqlite3
