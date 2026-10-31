@@ -114,7 +114,7 @@ function section(name) {
 
 const indexHtml = readFileSync(join(root, 'index.html'), 'utf8');
 const htmlScripts = [...indexHtml.matchAll(/<script src="([^"]+)"><\/script>/g)].map((match) => match[1]);
-const expectedScripts = SCRIPT_ORDER.slice(0, 2).concat(['js/brand.js']).concat(SCRIPT_ORDER.slice(2)).concat(['js/app.js', 'js/pwa.js']);
+const expectedScripts = SCRIPT_ORDER.slice(0, 2).concat(['js/brand.js']).concat(SCRIPT_ORDER.slice(2)).concat(['js/cloud-sync.js', 'js/cloud-adapter.js', 'js/app.js', 'js/pwa.js']);
 eq('index.html 脚本顺序与依赖链一致', htmlScripts.join(','), expectedScripts.join(','));
 eq('品牌层在数据层之前加载', htmlScripts.indexOf('js/brand.js'), 2);
 

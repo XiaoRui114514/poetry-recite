@@ -7,7 +7,7 @@ self.addEventListener('message', function(event) { if(event.data && event.data.t
    发布新版本时把 CACHE 里的版本号 +1，旧缓存会在 activate 时清掉。 */
 'use strict';
 
-var CACHE = 'poetry-recite-features-1.5.1-backup-retry-fix';
+var CACHE = 'poetry-recite-features-1.5.1-cloud-sync-v1';
 var ASSETS = [
   './',
   './index.html',
@@ -27,7 +27,9 @@ var ASSETS = [
   './js/quiz.js',
   './js/worksheet.js',
   './js/app.js',
-  './js/pwa.js'
+  './js/pwa.js',
+  './js/cloud-sync.js',
+  './js/cloud-adapter.js'
 ];
 
 self.addEventListener('install', function (event) {
@@ -59,6 +61,8 @@ self.addEventListener('fetch', function (event) {
   if (request.method !== 'GET') return;
   var url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Auth and learning data must never enter the offline cache.
+  if (url.pathname === '/api' || url.pathname.indexOf('/api/') === 0) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(
