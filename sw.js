@@ -7,7 +7,7 @@ self.addEventListener('message', function(event) { if(event.data && event.data.t
    发布新版本时把 CACHE 里的版本号 +1，旧缓存会在 activate 时清掉。 */
 'use strict';
 
-var CACHE = 'poetry-recite-features-1.5.1-cloud-sync-v2-backup-isolation';
+var CACHE = 'poetry-recite-features-1.5.1-cloud-sync-v3-account-ui';
 var ASSETS = [
   './',
   './index.html',

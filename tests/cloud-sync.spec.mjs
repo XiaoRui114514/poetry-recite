@@ -39,7 +39,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
     await page.locator('.learning-cloud-entry button').click();
     await page.getByLabel('用户名',{exact:true}).fill(name);
     await page.getByLabel('密码',{exact:true}).fill('Synthetic-study-2026!');
-    await page.getByRole('button',{name:'继续',exact:true}).click();
+    await page.locator('form button[type=submit]').click();
   }
   const a=await device();
   await a.page.evaluate(() => PoetryStorage.patch({stage:'初中',selectedIds:['guan-cang-hai']}));
@@ -73,7 +73,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
   expect(await b.page.evaluate(()=>PoetryStorage.getState().learnedIds['guan-cang-hai'])).toBeUndefined();
   await b.page.getByLabel('用户名',{exact:true}).fill('synthetic_beta');
   await b.page.getByLabel('密码',{exact:true}).fill('Synthetic-study-2026!');
-  await b.page.getByRole('button',{name:'继续',exact:true}).click();
+  await b.page.locator('form button[type=submit]').click();
   await expect(b.page.locator('.learning-cloud-state')).toHaveText('已同步');
   expect(cloud.has('synthetic_beta')).toBe(false);
   expect(await b.page.evaluate(()=>PoetryStorage.getState().learnedIds['guan-cang-hai'])).toBeUndefined();

@@ -6,9 +6,9 @@ import { pbkdf2Sync, createHmac } from 'node:crypto';
 import worker, { validateData, passwordHash } from '../src/worker.js';
 
 let mf, db, cookieA, userA, recoveryA;
-const passwordA = 'Synthetic only password A';
-const passwordB = 'Synthetic only password B';
-const resetPassword = 'Synthetic replacement password';
+const passwordA = 'SyntheticPasswordA1';
+const passwordB = 'SyntheticPasswordB2';
+const resetPassword = 'SyntheticReplacement3';
 const pepper = '42'.repeat(32);
 const site = 'https://synthetic-study.example';
 const invalidPassword = 'Synthetic invalid password';
@@ -145,12 +145,12 @@ test('missing pepper fails closed before database access', async () => {
   assert.equal((await response.json()).error, 'auth_unavailable');
 });
 test('standard PBKDF2 plus HMAC matches independent implementation and changes with salt and pepper', async () => {
-  const salt = '01'.repeat(16);
-  const hash = await passwordHash(passwordA, salt, pepper);
-  const expected = createHmac('sha256', Buffer.from(pepper, 'hex')).update(pbkdf2Sync(passwordA, Buffer.from(salt, 'hex'), 10000, 32, 'sha256')).digest('hex');
+  const salt = '01'.repeat(16), vectorPassword = ' Synthetic vector! 9 ';
+  const hash = await passwordHash(vectorPassword, salt, pepper);
+  const expected = createHmac('sha256', Buffer.from(pepper, 'hex')).update(pbkdf2Sync(vectorPassword, Buffer.from(salt, 'hex'), 10000, 32, 'sha256')).digest('hex');
   assert.equal(hash, expected);
-  assert.notEqual(hash, await passwordHash(passwordA, '02'.repeat(16), pepper));
-  assert.notEqual(hash, await passwordHash(passwordA, salt, '43'.repeat(32)));
+  assert.notEqual(hash, await passwordHash(vectorPassword, '02'.repeat(16), pepper));
+  assert.notEqual(hash, await passwordHash(vectorPassword, salt, '43'.repeat(32)));
 });
 test('additive password migration preserves legacy account and learning data', async () => {
   const legacy = await mf.getD1Database('LEGACY');
@@ -198,4 +198,37 @@ test('batched username limit blocks login before issuing a session', async () =>
   const result = await call('/auth/login', { method: 'POST', data: { username: 'Synthetic_A', password: resetPassword } });
   assert.equal(result.status, 429); assert.equal(result.cookie, undefined);
   assert.equal((await db.prepare('SELECT count(*) AS n FROM sessions WHERE user_id=?').bind(userA.id).first()).n, countBefore);
+});
+
+
+test('new passwords allow six letters, digits or mixed characters and reject invalid choices', async () => {
+  const headers = { 'CF-Connecting-IP': '198.51.100.60' };
+  for (const password of ['abc12', 'abc12!', 'abc 12', 'abc12中', 'abcdef\n', 'a'.repeat(129)]) {
+    for (const action of ['register', 'recover']) {
+      const result = await call(`/auth/${action}`, { method: 'POST', headers, data: { username: 'SyntheticPolicyInvalid', password, recoveryCode: 'a'.repeat(48) } });
+      assert.equal(result.status, 400); assert.equal(result.body.error, 'password');
+    }
+  }
+  const registered = [];
+  for (const [i, password] of ['abcdef', '123456', 'Ab12cD'].entries()) {
+    const result = await call('/auth/register', { method: 'POST', headers, data: { username: `SyntheticPolicy${i}`, password } });
+    assert.equal(result.status, 201); registered.push(result);
+    assert.equal((await call('/auth/login', { method: 'POST', headers, data: { username: `SyntheticPolicy${i}`, password } })).status, 200);
+  }
+  const changed = await call('/auth/recover', { method: 'POST', headers, data: { username: 'SyntheticPolicy0', recoveryCode: registered[0].body.recoveryCode, password: '654321' } });
+  assert.equal(changed.status, 200);
+  assert.equal((await call('/auth/login', { method: 'POST', headers, data: { username: 'SyntheticPolicy0', password: 'abcdef' } })).status, 401);
+  assert.equal((await call('/auth/login', { method: 'POST', headers, data: { username: 'SyntheticPolicy0', password: '654321' } })).status, 200);
+});
+
+test('existing passwords containing spaces and symbols still authenticate verbatim', async () => {
+  const oldPassword = ' Legacy Password! 9 ', salt = '03'.repeat(16), id = 'legacy-password-synthetic';
+  await db.prepare('INSERT INTO users(id,username,username_key,login_code_hash,recovery_hash,created_at,password_salt,password_scheme) VALUES(?,?,?,?,?,?,?,?)')
+    .bind(id, 'SyntheticLegacyPassword', 'syntheticlegacypassword', await passwordHash(oldPassword, salt, pepper), 'b'.repeat(64), Date.now(), salt, 'pbkdf2-sha256-10000-hmac-v1').run();
+  const headers = { 'CF-Connecting-IP': '198.51.100.70' };
+  const login = password => call('/auth/login', { method: 'POST', headers, data: { username: 'SyntheticLegacyPassword', password } });
+  const result = await login(oldPassword);
+  assert.equal(result.status, 200); assert.equal(result.body.user.id, id);
+  assert.equal((await login(oldPassword.trim())).status, 401);
+  assert.equal((await login(oldPassword.toLowerCase())).status, 401);
 });

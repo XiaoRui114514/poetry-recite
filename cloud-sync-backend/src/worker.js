@@ -27,8 +27,11 @@ function random(bytes = 32) { return Array.from(crypto.getRandomValues(new Uint8
 function hex(value) { return Array.from(new Uint8Array(value), n => n.toString(16).padStart(2, '0')).join(''); }
 async function digest(value) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(value))); }
 function fromHex(value) { return Uint8Array.from(value.match(/../g), part => parseInt(part, 16)); }
-function password(value) {
-  if (typeof value.password !== 'string' || value.password.length < 10 || value.password.length > 128) fail(400, 'password', '密码需为 10–128 个字符。');
+function password(value, settingNewPassword) {
+  if (typeof value.password !== 'string' || value.password.length < 6 || value.password.length > 128) fail(400, 'password', '密码需为 6–128 个字符。');
+  // Apply the new alphanumeric rule only when choosing a password. Existing
+  // passwords with symbols or spaces remain valid and are verified verbatim.
+  if (settingNewPassword && /[^A-Za-z0-9]/.test(value.password)) fail(400, 'password', '新密码需为至少 6 位字母或数字。');
   return value.password;
 }
 function requirePepper(env) {
@@ -124,7 +127,7 @@ async function route(request, env) {
     const ipHash = await digest(request.headers.get('cf-connecting-ip') || 'unknown');
     await budget(env.DB, `auth-ip:${ipHash}`, 30, 900);
     const value = await body(request), usernameKey = credentials(value);
-    const plainPassword = password(value);
+    const plainPassword = password(value, path !== '/auth/login');
     if (path === '/auth/register') {
       const [usernameLimit, registerLimit] = await env.DB.batch([
         rateCounter(env.DB, `auth-user:${usernameKey}`, 900),
