@@ -13,7 +13,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
       const req = route.request(), path = new URL(req.url()).pathname;
       let out = {}, status = 200;
       if (path === '/api/auth/me') out = {user};
-      else if (path === '/api/auth/login') {user = {id:req.postDataJSON().username,username:req.postDataJSON().username};out={user};}
+      else if (path === '/api/auth/login') {const body=req.postDataJSON();expect(body.password).toBe('Synthetic-study-2026!');user = {id:body.username,username:body.username};out={user};}
       else if (path === '/api/auth/logout') {user=null;out={ok:true};}
       else if (path === '/api/sync/poetry') {
         if (!user || req.headers()['x-account-id'] !== user.id) {status=409;out={error:'account_changed'};}
@@ -38,7 +38,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
   async function login(page,name='synthetic_alpha') {
     await page.locator('.learning-cloud-entry button').click();
     await page.getByLabel('用户名',{exact:true}).fill(name);
-    await page.getByLabel('登录码',{exact:true}).fill('ab'.repeat(24));
+    await page.getByLabel('密码',{exact:true}).fill('Synthetic-study-2026!');
     await page.getByRole('button',{name:'继续',exact:true}).click();
   }
   const a=await device();
@@ -49,7 +49,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
   expect(await a.page.evaluate(() => Object.keys(localStorage).some(k=>k.includes('-backup-')))).toBe(true);
   await a.page.getByRole('button',{name:'使用本机记录（上传）'}).click();
   await expect(a.page.locator('.learning-cloud-state')).toHaveText('已同步');
-  expect(await a.page.evaluate(() => JSON.stringify(localStorage))).not.toContain('ab'.repeat(24));
+  expect(await a.page.evaluate(() => JSON.stringify(localStorage))).not.toContain('Synthetic-study-2026!');
   await a.page.getByRole('button',{name:'关闭',exact:true}).click();
   const b=await device();
   await login(b.page);
@@ -72,7 +72,7 @@ test('cloud sync preserves migration, detects stale device, and isolates logout'
   await expect(b.page.locator('.learning-cloud-state')).toHaveText('本机学习');
   expect(await b.page.evaluate(()=>PoetryStorage.getState().learnedIds['guan-cang-hai'])).toBeUndefined();
   await b.page.getByLabel('用户名',{exact:true}).fill('synthetic_beta');
-  await b.page.getByLabel('登录码',{exact:true}).fill('ab'.repeat(24));
+  await b.page.getByLabel('密码',{exact:true}).fill('Synthetic-study-2026!');
   await b.page.getByRole('button',{name:'继续',exact:true}).click();
   await expect(b.page.locator('.learning-cloud-state')).toHaveText('已同步');
   expect(cloud.has('synthetic_beta')).toBe(false);

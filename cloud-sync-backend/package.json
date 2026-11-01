@@ -1,0 +1,20 @@
+{
+  "name": "learning-sync-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared Cloudflare learning account and revision sync service",
+  "main": "src/worker.js",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "devDependencies": {
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.156.0"
+  }
+}
