@@ -1,0 +1,14 @@
+{
+  "name": "learning-account-sync",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": { "ALLOWED_ORIGINS": "https://ywbs.pages.dev,https://ruii.pages.dev,https://codex-shared-account-sync.ywbs.pages.dev,https://codex-shared-account-sync.ruii.pages.dev", "AUTH_RELEASE_VERIFIED": "true" },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "learning-account-sync",
+    "database_id": "f0ad9b05-d667-4b47-9028-13d10edd6b6d"
+  }],
+  "triggers": { "crons": ["17 3 * * *"] }
+}

@@ -16,7 +16,8 @@
     "meta:inject": "node tools/meta/inject-meta.cjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
-    "test": "npm run test:unit && npm run test:data && npm run test:trans && npm run meta:check && npm run build && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:cloud && npm run test:data && npm run test:trans && npm run meta:check && npm run build && npm run test:e2e",
+    "test:cloud": "node tests/cloud-adapter.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"

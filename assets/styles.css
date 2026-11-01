@@ -302,11 +302,17 @@ button, input, select { font-family: inherit; }
 }
 
 .header-actions {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   display: flex;
   align-items: center;
   gap: var(--space-xs);
 }
+
+.header-actions .learning-cloud-entry { min-width: 0; justify-content: flex-end; }
+.header-actions .learning-cloud-entry button { max-width: min(12rem, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .header-meta {
   display: flex;
