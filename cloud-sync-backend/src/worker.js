@@ -160,15 +160,22 @@ async function route(request, env) {
       const row = await env.DB.prepare('SELECT revision,data,updated_at FROM learning_data WHERE user_id=? AND app=?').bind(id, app).first();
       return json(row ? { revision: row.revision, data: JSON.parse(row.data), updatedAt: row.updated_at } : { revision: 0, data: null, updatedAt: null });
     }
-    await budget(env.DB, `sync:${id}`, 120, 60);
     const value = await body(request);
     if (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0) fail(400, 'invalid_revision', '同步版本号无效。');
     const data = validateData(app, value.data), now = Date.now();
+    const bucket = Math.floor(now / 60000), rateKey = `sync:${id}:${bucket}`;
+    const counter = env.DB.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count').bind(rateKey, (bucket + 1) * 60000);
     // INSERT and UPDATE are atomic CAS statements: no stale read/write gap.
     const statement = value.baseRevision === 0
-      ? env.DB.prepare('INSERT INTO learning_data(user_id,app,revision,data,updated_at) VALUES(?,?,1,?,?) ON CONFLICT(user_id,app) DO NOTHING RETURNING revision,updated_at').bind(id, app, data, now)
-      : env.DB.prepare('UPDATE learning_data SET revision=revision+1,data=?,updated_at=? WHERE user_id=? AND app=? AND revision=? RETURNING revision,updated_at').bind(data, now, id, app, value.baseRevision);
-    const saved = await statement.first();
+      ? env.DB.prepare('INSERT INTO learning_data(user_id,app,revision,data,updated_at) SELECT ?,?,1,?,? WHERE (SELECT count FROM rate_limits WHERE key=?)<=120 ON CONFLICT(user_id,app) DO NOTHING RETURNING revision,updated_at').bind(id, app, data, now, rateKey)
+      : env.DB.prepare('UPDATE learning_data SET revision=revision+1,data=?,updated_at=? WHERE user_id=? AND app=? AND revision=? AND (SELECT count FROM rate_limits WHERE key=?)<=120 RETURNING revision,updated_at').bind(data, now, id, app, value.baseRevision, rateKey);
+    // D1 batches are transactions: count and guarded CAS share one RPC and commit
+    // atomically. Over-limit requests increment the counter but cannot mutate data.
+    const [limited, updated] = await env.DB.batch([counter, statement]);
+    const attempts = limited.results?.[0]?.count;
+    if (!Number.isInteger(attempts)) fail(500, 'server_error', '同步暂时不可用，本地记录已保留。');
+    if (attempts > 120) fail(429, 'rate_limited', '同步过于频繁，请稍后再试。');
+    const saved = updated.results?.[0];
     if (!saved) {
       const row = await env.DB.prepare('SELECT revision,data,updated_at FROM learning_data WHERE user_id=? AND app=?').bind(id, app).first();
       fail(409, 'conflict', '另一台设备已更新，请先选择保留哪份记录。', row ? { revision: row.revision, data: JSON.parse(row.data), updatedAt: row.updated_at } : { revision: 0, data: null, updatedAt: null });

@@ -160,3 +160,27 @@ test('additive password migration preserves legacy account and learning data', a
   assert.equal(row.login_code_hash, 'a'.repeat(64));
   assert.equal((await legacy.prepare('SELECT revision FROM learning_data WHERE user_id=?').bind(row.id).first()).revision, 9);
 });
+test('sync batch preserves durable rate limit and cannot write on 429', async () => {
+  const registered = await call('/auth/register', { method: 'POST', data: { username: 'Synthetic_Limit', password: passwordB } });
+  assert.equal(registered.status, 201);
+  const id = registered.body.user.id;
+  const buckets = [Math.floor(Date.now() / 60000), Math.floor(Date.now() / 60000) + 1];
+  async function setCount(count) {
+    for (const bucket of buckets) await db.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count').bind(`sync:${id}:${bucket}`, count, (bucket + 1) * 60000).run();
+  }
+  function put(baseRevision, learned) { return call('/sync/poetry', { method: 'PUT', cookie: registered.cookie, account: id, data: { baseRevision, data: { version: 1, learnedIds: [learned] } } }); }
+  await setCount(120);
+  assert.equal((await put(0, 'blocked-insert')).status, 429);
+  assert.equal((await call('/sync/poetry', { cookie: registered.cookie, account: id })).body.revision, 0);
+  await setCount(119);
+  assert.equal((await put(0, 'allowed-insert')).status, 200);
+  assert.equal((await put(1, 'blocked-update')).status, 429);
+  let current = (await call('/sync/poetry', { cookie: registered.cookie, account: id })).body;
+  assert.equal(current.revision, 1); assert.deepEqual(current.data.learnedIds, ['allowed-insert']);
+  await setCount(119);
+  const results = await Promise.all([put(1, 'concurrent-a'), put(1, 'concurrent-b')]);
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 429]);
+  current = (await call('/sync/poetry', { cookie: registered.cookie, account: id })).body;
+  assert.equal(current.revision, 2);
+  assert.deepEqual(current.data.learnedIds, [results[0].status === 200 ? 'concurrent-a' : 'concurrent-b']);
+});

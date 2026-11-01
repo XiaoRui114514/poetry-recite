@@ -345,3 +345,5 @@ npm run test:e2e     # 端到端用例（桌面 + 平板 + 手机），包含 fi
 原有 JSON 导出与导入继续可用。域名不同的旧站记录需在旧站导出 JSON，再在新站导入；浏览器不能跨域读取旧 localStorage。账号功能不改变默写判分和复习间隔。
 
 开发验证：`npm run test:cloud` 测试旧数据兼容、数据白名单和保存失败；`npm test` 包含原有检查。API 路由必须绕过 Service Worker 缓存；`_routes.json` 将 Pages Functions 限定为 `/api/*`，静态资源保持静态托管。共享后端必须独立完成配置、安全测试及免费额度核验后再启用生产绑定。
+
+共享 Worker 的正式源码、数据库迁移和部署配置见 [cloud-sync-backend](cloud-sync-backend/README.md)。两个现有 Pages 站点通过 `LEARNING_SYNC` 私有 Service Binding 复用这一后端。
