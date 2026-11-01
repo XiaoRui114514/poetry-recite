@@ -60,11 +60,16 @@ function credentials(value) {
   if (typeof value.username !== 'string' || !/^[A-Za-z0-9_-]{3,32}$/.test(value.username)) fail(400, 'username', '用户名需为 3–32 位字母、数字、下划线或短横线。');
   return value.username.toLowerCase();
 }
-async function budget(db, name, limit, seconds) {
+function rateCounter(db, name, seconds) {
   const now = Date.now(), bucket = Math.floor(now / (seconds * 1000));
-  const key = `${name}:${bucket}`;
-  const row = await db.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count').bind(key, (bucket + 1) * seconds * 1000).first();
+  return db.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count').bind(`${name}:${bucket}`, (bucket + 1) * seconds * 1000);
+}
+function checkBudget(row, limit) {
+  if (!Number.isInteger(row?.count)) fail(500, 'server_error', '账号服务暂时不可用。');
   if (row.count > limit) fail(429, 'rate_limited', '操作过于频繁，请稍后再试。');
+}
+async function budget(db, name, limit, seconds) {
+  checkBudget(await rateCounter(db, name, seconds).first(), limit);
 }
 function cookie(token, maxAge = SESSION_DAYS * 86400) { return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`; }
 async function session(request, env) {
@@ -74,9 +79,13 @@ async function session(request, env) {
   const user = await env.DB.prepare('SELECT u.id,u.username FROM sessions s JOIN users u ON s.user_id=u.id WHERE s.token_hash=? AND s.expires_at>? AND s.credential_version=u.credential_version').bind(tokenHash, Date.now()).first();
   return user ? { user, tokenHash } : null;
 }
-async function makeSession(env, user, credentialVersion = 1) {
+async function makeSession(env, user, credentialVersion = 1, revokeOlder = false) {
   const token = random();
-  await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,credential_version) VALUES(?,?,?,?)').bind(await digest(token), user.id, Date.now() + SESSION_DAYS * 86400000, credentialVersion).run();
+  const insert = env.DB.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,credential_version) VALUES(?,?,?,?)').bind(await digest(token), user.id, Date.now() + SESSION_DAYS * 86400000, credentialVersion);
+  if (revokeOlder) {
+    // Keep any legitimate login that already observed the new credential version.
+    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND credential_version<?').bind(user.id, credentialVersion), insert]);
+  } else await insert.run();
   return cookie(token);
 }
 export function validateData(app, data) {
@@ -116,9 +125,12 @@ async function route(request, env) {
     await budget(env.DB, `auth-ip:${ipHash}`, 30, 900);
     const value = await body(request), usernameKey = credentials(value);
     const plainPassword = password(value);
-    await budget(env.DB, `auth-user:${usernameKey}`, 15, 900);
     if (path === '/auth/register') {
-      await budget(env.DB, `register:${ipHash}`, 5, 3600);
+      const [usernameLimit, registerLimit] = await env.DB.batch([
+        rateCounter(env.DB, `auth-user:${usernameKey}`, 900),
+        rateCounter(env.DB, `register:${ipHash}`, 3600)
+      ]);
+      checkBudget(usernameLimit.results?.[0], 15); checkBudget(registerLimit.results?.[0], 5);
       const salt = random(16), recoveryCode = random(24), id = crypto.randomUUID();
       const hashed = await passwordHash(plainPassword, salt, env.PASSWORD_PEPPER);
       const recoveryHash = await digest(recoveryCode);
@@ -128,7 +140,12 @@ async function route(request, env) {
       const user = { id, username: value.username };
       return json({ user, recoveryCode }, 201, { 'Set-Cookie': await makeSession(env, user) });
     }
-    const stored = await env.DB.prepare('SELECT id,username,login_code_hash,recovery_hash,credential_version,password_salt,password_scheme FROM users WHERE username_key=?').bind(usernameKey).first();
+    const [usernameLimit, selected] = await env.DB.batch([
+      rateCounter(env.DB, `auth-user:${usernameKey}`, 900),
+      env.DB.prepare('SELECT id,username,login_code_hash,recovery_hash,credential_version,password_salt,password_scheme FROM users WHERE username_key=?').bind(usernameKey)
+    ]);
+    checkBudget(usernameLimit.results?.[0], 15);
+    const stored = selected.results?.[0];
     if (path === '/auth/login') {
       // Compatibility only for the earlier synthetic generated-code accounts.
       // New registrations never use the legacy scheme.
@@ -146,9 +163,8 @@ async function route(request, env) {
     // Compare and swap makes a recovery code single use even under concurrent requests.
     const result = await env.DB.prepare('UPDATE users SET login_code_hash=?,recovery_hash=?,password_salt=?,password_scheme=?,credential_version=credential_version+1 WHERE id=? AND recovery_hash=? RETURNING id,credential_version').bind(newHash, await digest(recoveryCode), salt, PASSWORD_SCHEME, stored.id, oldRecoveryHash).first();
     if (!result) fail(409, 'recovery_used', '恢复码已使用，请使用最新恢复码。');
-    await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(stored.id).run();
     const user = { id: stored.id, username: stored.username };
-    return json({ user, recoveryCode }, 200, { 'Set-Cookie': await makeSession(env, user, result.credential_version) });
+    return json({ user, recoveryCode }, 200, { 'Set-Cookie': await makeSession(env, user, result.credential_version, true) });
   }
   const match = path.match(/^\/sync\/(poetry|english)$/);
   if (match && ['GET','PUT'].includes(request.method)) {

@@ -89,8 +89,14 @@ test('explicit whitelist rejects API keys and unauthorized top-level data', asyn
   assert.equal(JSON.stringify(data).includes('synthetic-never-upload'), false);
 });
 test('recovery revokes existing sessions and cannot reuse old code', async () => {
+  // Model a concurrent legitimate login which already observed the next version.
+  const currentRaw = 'c'.repeat(64);
+  const currentHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(currentRaw))).toString('hex');
+  await db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,credential_version) VALUES(?,?,?,?)').bind(currentHash,userA.id,Date.now()+60000,2).run();
   const recovered = await call('/auth/recover', { method: 'POST', data: { username: 'Synthetic_A', recoveryCode: recoveryA, password: resetPassword } });
   assert.equal(recovered.status, 200); assert.notEqual(recovered.body.recoveryCode, recoveryA);
+  assert.equal((await call('/auth/me', { cookie: `__Host-learning-session=${currentRaw}` })).body.user.id, userA.id);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM sessions WHERE user_id=? AND credential_version<2').bind(userA.id).first()).n, 0);
   assert.equal(recovered.body.loginCode, undefined);
   const replacement = await call('/auth/login', { method: 'POST', data: { username: 'Synthetic_A', password: resetPassword } });
   assert.equal(replacement.status, 200);
@@ -183,4 +189,13 @@ test('sync batch preserves durable rate limit and cannot write on 429', async ()
   current = (await call('/sync/poetry', { cookie: registered.cookie, account: id })).body;
   assert.equal(current.revision, 2);
   assert.deepEqual(current.data.learnedIds, [results[0].status === 200 ? 'concurrent-a' : 'concurrent-b']);
+});
+
+test('batched username limit blocks login before issuing a session', async () => {
+  const countBefore = (await db.prepare('SELECT count(*) AS n FROM sessions WHERE user_id=?').bind(userA.id).first()).n;
+  const bucket = Math.floor(Date.now() / 900000);
+  for (const b of [bucket, bucket + 1]) await db.prepare('INSERT INTO rate_limits(key,count,expires_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count').bind(`auth-user:synthetic_a:${b}`,15,(b+1)*900000).run();
+  const result = await call('/auth/login', { method: 'POST', data: { username: 'Synthetic_A', password: resetPassword } });
+  assert.equal(result.status, 429); assert.equal(result.cookie, undefined);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM sessions WHERE user_id=?').bind(userA.id).first()).n, countBefore);
 });
