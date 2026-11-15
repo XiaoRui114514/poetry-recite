@@ -506,7 +506,27 @@
       return poem.id;
     });
     var preferKeys = state.scope === 'wrong' ? Storage.wrongItemKeysForPoems(ids) : [];
-    var onlyKeys = state.focusKey ? [state.focusKey] : (state.scope === "review" ? Storage.dueSentenceKeys() : []);
+    var onlyKeys = state.focusKey ? [state.focusKey] : [];
+    if (!state.focusKey && state.scope === 'review') {
+      var dueKeys = Storage.dueSentenceKeys();
+      var selectedDueKeys = dueKeys.filter(function (key) { return ids.indexOf(key.split('|')[0]) !== -1; });
+      var fallbackModes = Utils.unique(Utils.toArray(prefs.modes).filter(function (mode) {
+        return MODE_KEY_LIST.indexOf(mode) !== -1;
+      }));
+      if (!fallbackModes.length) fallbackModes = MODE_KEY_LIST.slice();
+      // 当前范围没有句卡时保留原有篇目出题与换批判重；有句卡时
+      // 每篇单独处理：未选篇目的句卡不能过滤当前范围；旧的篇目复习计划
+      // 没有句卡时仍可按原题型出题，不被同批其它篇目的句卡挤掉。
+      if (selectedDueKeys.length) picked.list.forEach(function (poem) {
+        var poemKeys = selectedDueKeys.filter(function (key) { return key.indexOf(poem.id + '|') === 0; });
+        if (!poemKeys.length) {
+          poemKeys = allCandidates([poem], fallbackModes, questionFilterFn(state.questionFilter)).map(function (question) {
+            return question.key;
+          });
+        }
+        onlyKeys = onlyKeys.concat(poemKeys);
+      });
+    }
     state.questions = pickQuestions(picked.list, {
       count: requested,
       // 指定原题时由 key 唯一定位，不能被后来修改的题型偏好排除。
