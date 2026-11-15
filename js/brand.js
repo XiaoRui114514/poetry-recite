@@ -246,6 +246,7 @@
       '<div class="bf-links">' +
         '<button class="btn btn-sm" type="button" data-brand="lic">版权与使用授权</button>' +
         '<span class="tip">禁止商用</span>' +
+        '<a href="https://hison-tools.ribbedmeter8.chatgpt.site/zh/?task=study#projects" target="_blank" rel="noopener noreferrer">其他学习工具</a>' +
       '</div>' +
       (ver() ? '<div class="bf-ver">' + esc(ver()) + '</div>' : '') +
       (repo
