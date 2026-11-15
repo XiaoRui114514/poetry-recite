@@ -12,5 +12,20 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:unit && npm run test:data && npm run test:trans && npm run meta:check && npm run build
+      - run: npm run test:unit && npm run test:cloud && npm run test:data && npm run test:trans && npm run meta:check && npm run build
       - run: npx playwright test --workers=2
+  sync-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cloud-sync-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cloud-sync-backend/package-lock.json
+      - run: npm ci
+      - run: npm test
