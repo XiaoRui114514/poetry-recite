@@ -9957,14 +9957,16 @@ body.focus-reading .poem-body { max-width: 30em; }
     var onlyKeys = state.focusKey ? [state.focusKey] : [];
     if (!state.focusKey && state.scope === 'review') {
       var dueKeys = Storage.dueSentenceKeys();
+      var selectedDueKeys = dueKeys.filter(function (key) { return ids.indexOf(key.split('|')[0]) !== -1; });
       var fallbackModes = Utils.unique(Utils.toArray(prefs.modes).filter(function (mode) {
         return MODE_KEY_LIST.indexOf(mode) !== -1;
       }));
       if (!fallbackModes.length) fallbackModes = MODE_KEY_LIST.slice();
+      // 当前范围没有句卡时保留原有篇目出题与换批判重；有句卡时
       // 每篇单独处理：未选篇目的句卡不能过滤当前范围；旧的篇目复习计划
       // 没有句卡时仍可按原题型出题，不被同批其它篇目的句卡挤掉。
-      picked.list.forEach(function (poem) {
-        var poemKeys = dueKeys.filter(function (key) { return key.indexOf(poem.id + '|') === 0; });
+      if (selectedDueKeys.length) picked.list.forEach(function (poem) {
+        var poemKeys = selectedDueKeys.filter(function (key) { return key.indexOf(poem.id + '|') === 0; });
         if (!poemKeys.length) {
           poemKeys = allCandidates([poem], fallbackModes, questionFilterFn(state.questionFilter)).map(function (question) {
             return question.key;

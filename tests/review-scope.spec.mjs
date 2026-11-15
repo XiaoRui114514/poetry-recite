@@ -3,10 +3,10 @@ import { test, expect } from '@playwright/test';
 test('今日复习不受未选篇目的到期句卡影响', async ({page})=>{
  await page.route('**/api/auth/me',route=>route.fulfill({contentType:'application/json',body:'{"user":null}'}));
  await page.clock.install({time:new Date('2026-11-14T12:00:00Z')});
- await page.addInitScript(()=>localStorage.setItem('hison-poetry-notice-v1','1'));
+ await page.addInitScript(()=>{localStorage.setItem('hison-poetry-notice-v1','1');window.__POETRY_RANDOM__=()=>0.5;});
  await page.goto('/index.html');
  await page.evaluate(()=>{
-  const S=PoetryStorage;S.reset();S.patch({stage:'初中',selectedIds:['guan-ju','jian-jia']});S.markLearned('guan-ju');
+  const S=PoetryStorage;S.reset();S.patch({stage:'初中',selectedIds:['guan-ju','jian-jia'],prefs:{...S.getState().prefs,modes:['full'],quizCount:1}});S.markLearned('guan-ju');
   const p=PoetryDatabase.byId('jian-jia'),q=PoetryQuiz.__internals.buildQuestion(p,PoetryQuiz.__internals.unitsOf(p)[0],'full');
   S.recordQuiz(p.id,false,'full',{key:q.key,index:0,pairIndex:null});S.patch({selectedIds:['guan-ju']});
  });
@@ -16,6 +16,9 @@ test('今日复习不受未选篇目的到期句卡影响', async ({page})=>{
  await expect(page.locator('.quiz-card').first()).toBeVisible();
  const state=await page.evaluate(()=>({quiz:PoetryQuiz.currentState(),selected:PoetryStorage.getState().selectedIds,due:PoetryStorage.duePoemIds()}));
  expect(state.selected).toEqual(['guan-ju']);expect(state.due).toContain('guan-ju');expect(state.quiz.questionCount).toBeGreaterThan(0);
+ const first=await page.locator('.quiz-card').first().getAttribute('data-key');
+ await page.locator('[data-action="generate"]').click();
+ expect(await page.locator('.quiz-card').first().getAttribute('data-key')).not.toBe(first);
 });
 
 test('混合句卡与篇目计划的复习保留两种来源',async ({page})=>{
