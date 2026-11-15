@@ -70,6 +70,9 @@ if (leftovers.length) {
 
 fs.mkdirSync(distDir, { recursive: true });
 fs.copyFileSync(path.join(root, '_routes.json'), path.join(distDir, '_routes.json'));
+for (const file of ['robots.txt', 'sitemap.xml']) {
+  fs.copyFileSync(path.join(root, file), path.join(distDir, file));
+}
 const banner = `<!-- 古诗文背诵学习系统 · 单文件版（由 build.js 生成，请勿直接编辑） -->\n`;
 const outHtml = banner + html;
 
